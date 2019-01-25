@@ -36,7 +36,7 @@ def collate(
 
         assert len(item_a)==len(item_bs)
 
-        b_count = len(key_b[0])
+        b_count = len(key_bs[0])
 
         max_lens = get_max_lens(item_a, item_bs)
         max_lens = min(max_lens, max_a+max_b*b_count) + 2 + b_count
@@ -45,7 +45,7 @@ def collate(
         input_ids = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
         token_type_ids = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
         attention_mask = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
-        position_ids = torch.longTensor(sizes, max_lens).fiil_(511)
+        position_ids = torch.LongTensor(sizes, max_lens).fill_(511)
         input_ids[:,0] = cls_idx
         for i, (a, bs) in enumerate(zip(item_a, item_bs)):
             size_a = min(len(a), max_a)
@@ -60,7 +60,7 @@ def collate(
             for j,b in enumerate(bs):
                 tmp_indexs = p_indexs + size_bs[j]
 
-                input_ids[i,p_indexs:tmp_indexs] = b1[:size_bs[j]]
+                input_ids[i,p_indexs:tmp_indexs] = b[:size_bs[j]]
                 input_ids[i,p_indexs] = sep_idx
 
                 tmp_indexs += 1
@@ -94,7 +94,7 @@ def collate(
 
 
     id = torch.LongTensor([s['id'] for s in samples])
-    input_ids, token_type_ids, attention_mask = merge('a_item', 'b_items', max_a_positions, max_b_positions)
+    input_ids, token_type_ids, attention_mask, position_ids = merge('a_item', 'b_items', max_a_positions, max_b_positions)
     prev_output_tokens = merge_("t_item", max_target_positions, copy_eos_to_beginning=True)
     target = merge_("t_item", max_target_positions, copy_eos_to_beginning=False)
     ntokens = sum(len(s["t_item"])+1 for s in samples)

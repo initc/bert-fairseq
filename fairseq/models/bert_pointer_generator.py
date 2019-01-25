@@ -29,8 +29,8 @@ class BertTransformerModel(BaseFairseqModel):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, input_ids, token_type_ids, attention_mask, prev_output_tokens):
-        encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask)
+    def forward(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens):
+        encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
         deocder_out = self.decoder(prev_output_tokens, encoder_outs)
         return deocder_out
 
