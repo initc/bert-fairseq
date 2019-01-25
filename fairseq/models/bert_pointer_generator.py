@@ -1,9 +1,9 @@
-from fairseq.models.bert_modeling import PreTrainedBertModel, BertModel, BertEmbeddings, BertPreTrainedModel, BertLayerNorm
+from fairseq.modules.bert_modeling import PreTrainedBertModel, BertModel, BertEmbeddings, BertPreTrainedModel, BertLayerNorm
 import torch.nn as nn
 import  torch.nn.functional  as F
 import torch
 from . import BaseFairseqModel, register_model, register_model_architecture
-from fairseq.modules.decanlp import TransformerDecoder, DecoderAttention, Feedforward
+from fairseq.modules.multi_pointer_modeling import TransformerDecoder, DecoderAttention, Feedforward
 
 
 @register_model('bert_transformer')
@@ -44,6 +44,10 @@ class BertTransformerModel(BaseFairseqModel):
                             help='convert encoder hidden')
         parser.add_argument('--decoder-layer', default=2, type=int, metavar='N',
                             help='the number of decoder layer')
+        parser.add_argument('--token-types', default=2, type=int, metavar='N',
+                            help='the number of tokens number')
+        parser.add_argument('--defined-position', action="store_true", default=False, 
+                            help='user-defined position in embedding')
         parser.add_argument('--decoder-layers', type=int, metavar='N', default=2,
                             help='num decoder layers')
         parser.add_argument('--share-decoder-input-output-embed', action='store_true', default=False,
@@ -62,7 +66,7 @@ class BertTransformerModel(BaseFairseqModel):
 
         encoder = BertTransformerEncoder.build_model(args.pre_dir, args=args)
         decoder_embedding = build_decoder_embedding(encoder)
-        init_encoder_token_type(encoder)
+        init_encoder_token_type(encoder, token_nums=args.token_types)
         decoder_dictionary = task.tokenizer
         decoder = BertTransformerDecoder(args, encoder.config, decoder_dictionary, decoder_embedding)
         return BertTransformerModel(encoder, decoder)
@@ -73,6 +77,7 @@ class BertTransformerEncoder(PreTrainedBertModel):
         super().__init__(config)
         self.config = config
         args = kwargs["args"]
+        self.is_defined_position = args.defined_position
         self.max_source_positions = args.max_source_positions
         self.bert = BertPreTrainedModel(config)
 
@@ -90,8 +95,9 @@ class BertTransformerEncoder(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
 
 
-    def forward(self, input_ids, token_type_ids, attention_mask):
-
+    def forward(self, input_ids, token_type_ids, attention_mask, position_ids):
+        if not self.is_defined_position:
+            position_ids = None
         all_encoder_layers= self.bert(input_ids, token_type_ids, attention_mask)
 
         sequence_output = all_encoder_layers[-1]
@@ -279,10 +285,10 @@ def build_decoder_embedding(encoder):
     decoder_embedding.LayerNorm.beta.data.copy_(encoder_embedding.LayerNorm.beta.data)
     return decoder_embedding
 
-def init_encoder_token_type(encoder_model):
+def init_encoder_token_type(encoder_model, token_nums=3):
     config = encoder_model.config
 
-    token_type_embeddings_appended = nn.Embedding(3, config.hidden_size)
+    token_type_embeddings_appended = nn.Embedding(token_nums, config.hidden_size)
     token_type_embeddings_appended.weight.data.normal_(mean=0.0, std=config.initializer_range)
     # token_type_embeddings_appended.bias.data.zero_()
 

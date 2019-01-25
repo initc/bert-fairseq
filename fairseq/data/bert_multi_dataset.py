@@ -12,9 +12,12 @@ from fairseq import utils
 
 from . import data_utils, FairseqDataset
 
-def get_max_lens(item_a, item_b1, item_b2):
+def get_max_lens(item_a, item_bs):
 
-    lens = max(len(a)+len(b1)+len(b2) for a,b1,b2 in zip(item_a, item_b1, item_b2))
+    def lens_b(bs):
+        return sum([len(b) for b in bs])
+
+    lens = max(len(a)+lens_b(bs) for a,bs in zip(item_a, item_bs))
     return lens
 
 
@@ -26,40 +29,48 @@ def collate(
         print("hahahaha")
         return {}
     batch_size = len(samples)
-    def merge(key_a, key_b1, key_b2, max_a, max_b):
+    def merge(key_a, key_b, max_a, max_b):
         
         item_a = [s[key_a] for s in samples]
-        item_b1 = [s[key_b1] for s in samples]
-        item_b2 = [s[key_b2] for s in samples]
-        assert len(item_a)==len(item_b1)
-        assert len(item_b1)==len(item_b2)
-        max_lens = get_max_lens(item_a, item_b1, item_b2)
-        max_lens = min(max_lens, max_a+max_b*2) + 4
+        item_bs = [s[key_b] for s in samples]
+
+        assert len(item_a)==len(item_bs)
+
+        b_count = len(key_b[0])
+
+        max_lens = get_max_lens(item_a, item_bs)
+        max_lens = min(max_lens, max_a+max_b*b_count) + 2 + b_count
+
         sizes = len(item_a)
         input_ids = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
         token_type_ids = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
         attention_mask = torch.LongTensor(sizes, max_lens).fill_(pad_idx)
+        position_ids = torch.longTensor(sizes, max_lens).fiil_(511)
         input_ids[:,0] = cls_idx
-        for i, (a, b1, b2) in enumerate(zip(item_a, item_b1, item_b2)):
+        for i, (a, bs) in enumerate(zip(item_a, item_bs)):
             size_a = min(len(a), max_a)
-            size_b1 = min(len(b1), max_b)
-            size_b2 = min(len(b2), max_b)
+            size_bs = [min(len(b), max_b) for b in bs]
             # sep_A
             input_ids[i,1:size_a+1] = a[:size_a]
             input_ids[i,size_a+1] = sep_idx
             token_type_ids[i,:size_a+2] = 0
-            # sep_B1
-            input_ids[i,size_a+2:size_a+2+size_b1] = b1[:size_b1]
-            input_ids[i,size_a+size_b1+2] = sep_idx
-            token_type_ids[i,size_a+2:size_a+3+size_b1] = 1
-            # sep_B2
-            input_ids[i,size_a+3+size_b1:size_a+3+size_b1+size_b2] = b2[:size_b2]
-            input_ids[i,size_a+3+size_b1+size_b2] = sep_idx
-            token_type_ids[i,size_a+3+size_b1:size_a+4+size_b1+size_b2] = 2  
-            # MASK
-            attention_mask[i,:size_a+4+size_b1+size_b2]=1
+            position_ids[i, :size_a+2] = torch.arange(size_a+2)
+            # sep_BS
+            p_indexs = size_a+2
+            for j,b in enumerate(bs):
+                tmp_indexs = p_indexs + size_bs[j]
 
-        return input_ids, token_type_ids, attention_mask
+                input_ids[i,p_indexs:tmp_indexs] = b1[:size_bs[j]]
+                input_ids[i,p_indexs] = sep_idx
+
+                tmp_indexs += 1
+                token_type_ids[i,p_indexs:tmp_indexs] = j
+                position_ids[i,p_indexs:tmp_indexs] = torch.arange(size_bs[j]+1)
+                p_indexs = tmp_indexs
+            # MASK
+            attention_mask[i,:p_indexs]=1
+
+        return input_ids, token_type_ids, attention_mask, position_ids
 
     def merge_(key_data, max_tokens, copy_eos_to_beginning=True):
         values = [s[key_data][:max_tokens] for s in samples]
@@ -83,7 +94,7 @@ def collate(
 
 
     id = torch.LongTensor([s['id'] for s in samples])
-    input_ids, token_type_ids, attention_mask = merge('a_item', 'b1_item', 'b2_item', max_a_positions, max_b_positions)
+    input_ids, token_type_ids, attention_mask = merge('a_item', 'b_items', max_a_positions, max_b_positions)
     prev_output_tokens = merge_("t_item", max_target_positions, copy_eos_to_beginning=True)
     target = merge_("t_item", max_target_positions, copy_eos_to_beginning=False)
     ntokens = sum(len(s["t_item"])+1 for s in samples)
@@ -97,6 +108,7 @@ def collate(
             'token_type_ids': token_type_ids,
             "attention_mask": attention_mask,
             "prev_output_tokens":prev_output_tokens,
+            "position_ids":position_ids,
         },
         "target": target
     }
@@ -135,20 +147,18 @@ class BertMultiDataset(FairseqDataset):
 
     def __init__(
         self, a_data, a_sizes,
-        b1_data, b1_sizes,
-        b2_data, b2_sizes,
+        b_datas, b_sizes,
         target_dataset, target_sizes, 
         bert_tokenizer,
         max_a_positions=1024, max_b_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True
     ):
+        self.b_count = len(b_datas)
         self.a_data = a_data
-        self.b1_data = b1_data
-        self.b2_data = b2_data
+        self.b_datas = b_datas
         self.target_dataset = target_dataset
         self.a_sizes = np.array(a_sizes)
-        self.b1_sizes = np.array(b1_sizes)
-        self.b2_sizes = np.array(b2_sizes)
+        self.b_sizes = [np.array(b) for b in b_sizes]
         self.target_sizes = np.array(target_sizes)
         self.tokenizer = bert_tokenizer
         self.max_a_positions = max_a_positions
@@ -175,14 +185,13 @@ class BertMultiDataset(FairseqDataset):
         #         src_item = self.src[index][:-1]
 
         a_item = self.a_data[index]
-        b1_item = self.b1_data[index]
-        b2_item = self.b2_data[index]
+        b_items = [item[index] for item in self.b_datas]
+        # b2_item = self.b2_data[index]
         t_item = self.target_dataset[index]
         return {
             'id': index,
             'a_item': a_item,
-            'b1_item': b1_item,
-            'b2_item': b2_item,
+            'b_items': b_items,
             't_item':t_item
         }
 
@@ -231,13 +240,12 @@ class BertMultiDataset(FairseqDataset):
             max_positions,
             (self.max_source_positions, self.max_target_positions),
         )
-        bsz = max(num_tokens // max(src_len, tgt_len), 1)
+        bsz = 2
         return self.collater([
             {
                 'id': i,
                 'a_item': torch.Tensor(src_len//2).uniform_(2, 20).long(),
-                'b1_item': torch.Tensor(src_len//2).uniform_(2, 200).long(),
-                'b2_item': torch.Tensor(src_len//2).uniform_(2, 200).long(),
+                'b_items': [torch.Tensor(src_len//2).uniform_(2, 200).long() for _ in range(self.b_count)],
                 "t_item": torch.Tensor(tgt_len).uniform_(2, 20).long(),
             }
             for i in range(bsz)
@@ -248,7 +256,8 @@ class BertMultiDataset(FairseqDataset):
         """Return the number of tokens in a sample. This value is used to
         enforce ``--max-tokens`` during batching."""
         # target_sizes = self.target_sizes[index]
-        return min(self.a_sizes[index]+self.b1_sizes[index]+self.b2_sizes[index]+self.target_sizes[index], self.max_a_positions+self.max_b_positions*2+self.max_target_positions)
+        b_size = sum([b_sizes[index] for b_sizes in self.b_sizes])
+        return min(self.a_sizes[index]+b_size+self.target_sizes[index], self.max_a_positions+self.max_b_positions*self.b_count+self.max_target_positions)
 
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
@@ -270,20 +279,18 @@ class BertMultiDataset(FairseqDataset):
 
     def prefetch(self, indices):
         self.target_dataset.prefetch(indices)
-        self.b1_data.prefetch(indices)
-        self.b2_data.prefetch(indices)
+        for b_data in self.b_datas:
+            b_data.prefetch(indices)
         self.a_data.prefetch(indices)
 
 
     @property
     def supports_prefetch(self):
+        b_surports = [hasattr(b_data, 'supports_prefetch') and b_data.supports_prefetch for b_data in self.b_datas]
         return (
             hasattr(self.a_data, 'supports_prefetch')
             and self.a_data.supports_prefetch
-            and hasattr(self.b1_data, 'supports_prefetch')
-            and self.b1_data.supports_prefetch
-            and hasattr(self.b2_data, 'supports_prefetch')
-            and self.b2_data.supports_prefetch
             and hasattr(self.target_dataset, 'supports_prefetch')
             and self.target_dataset.supports_prefetch
+            and all(b_surports)
         )

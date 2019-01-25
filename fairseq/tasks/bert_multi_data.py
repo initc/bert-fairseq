@@ -122,22 +122,17 @@ class BertMultiGenerator(FairseqTask):
                 src_datasets.append(indexed_dataset(prefix))
 
                 print('| load  {}-{} {} {} examples'.format(data_path, split, bert_pref, len(src_datasets[-1])))
-        assert len(src_datasets) == 4
-        assert len(src_datasets[0]) == len(src_datasets[1])
-        assert len(src_datasets[0]) == len(src_datasets[2])
-        assert len(src_datasets[2]) == len(src_datasets[3])
+        assert len(src_datasets) >= 3
 
 
         query_dataset = src_datasets[0]
-        passage_1_dataset = src_datasets[1]
-        passage_2_dataset = src_datasets[2]
-        target_dataset = src_datasets[3]
+        passage_datasets = src_datasets[1:-1]
+        target_dataset = src_datasets[-1]
 
 
         self.datasets[split] = BertMultiDataset(
             query_dataset, query_dataset.sizes,
-            passage_1_dataset, passage_1_dataset.sizes,
-            passage_2_dataset, passage_2_dataset.sizes,
+            passage_datasets, [p.sizes for p in passage_datasets],
             target_dataset, target_dataset.sizes,
             self.tokenizer,
             max_a_positions=self.args.max_query_positions,
@@ -162,7 +157,7 @@ class BertMultiGenerator(FairseqTask):
     def get_batch_iterator(
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
-        seed=1, num_shards=1, shard_id=0,
+        seed=1, num_shards=1, shard_id=0,num_workers=0,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
