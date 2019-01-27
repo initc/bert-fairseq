@@ -100,7 +100,9 @@ class BertTokenizer(object):
         return split_tokens
 
     def str_tokens(self, ids):
-        tokens = self.convert_ids_to_tokens(ids.tolist())
+        if not isinstance(ids, list):
+            ids = ids.tolist()
+        tokens = self.convert_ids_to_tokens(ids)
         return " ".join(tokens)
 
 
@@ -187,6 +189,9 @@ class BertTokenizer(object):
 
     def sep(self):
         return self.vocab["[SEP]"]
+
+    def eos(self):
+        return self.sep()
 
     def __len__(self):
         return len(self.vocab)

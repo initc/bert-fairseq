@@ -36,7 +36,7 @@ def collate(
 
         assert len(item_a)==len(item_bs)
 
-        b_count = len(key_bs[0])
+        b_count = len(item_bs[0])
 
         max_lens = get_max_lens(item_a, item_bs)
         max_lens = min(max_lens, max_a+max_b*b_count) + 2 + b_count
@@ -258,6 +258,9 @@ class BertMultiDataset(FairseqDataset):
         # target_sizes = self.target_sizes[index]
         b_size = sum([b_sizes[index] for b_sizes in self.b_sizes])
         return min(self.a_sizes[index]+b_size+self.target_sizes[index], self.max_a_positions+self.max_b_positions*self.b_count+self.max_target_positions)
+
+    def get_origin_text(self, sample_id):
+        return self.tokenizer.str_tokens(self.a_data[sample_id])
 
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when

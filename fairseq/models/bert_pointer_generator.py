@@ -34,6 +34,10 @@ class BertTransformerModel(BaseFairseqModel):
         deocder_out = self.decoder(prev_output_tokens, encoder_outs)
         return deocder_out
 
+    def greedy_generater(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens):
+        encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
+        decoder_out = self.decoder.greedy_decoder(encoder_outs)
+        return decoder_out
 
 
     @staticmethod
@@ -98,7 +102,7 @@ class BertTransformerEncoder(PreTrainedBertModel):
     def forward(self, input_ids, token_type_ids, attention_mask, position_ids):
         if not self.is_defined_position:
             position_ids = None
-        all_encoder_layers= self.bert(input_ids, token_type_ids, attention_mask)
+        all_encoder_layers= self.bert(input_ids, token_type_ids, attention_mask, position_ids)
 
         sequence_output = all_encoder_layers[-1]
         sequence_output = self.ln_context(self.linear_context(sequence_output)) if self.reduce_dim>0 else sequence_output
@@ -183,7 +187,9 @@ class BertTransformerDecoder(nn.Module):
 
         return scaled_p_vocab
 
-    def greedy_decoder(self, encoder_out, eos_idx, pad_idx, max_lens=15):
+    def greedy_decoder(self, encoder_outs, max_lens=15):
+        eos_idx = self.eos()
+        pad_idx = self.pad()
         encoder_out, encoder_mask, encoder_input_ids = encoder_outs["encoder_output"], encoder_outs["encoder_mask"], encoder_outs["input_ids"]
         encoder_out_padding = encoder_mask.data == pad_idx
 
@@ -205,13 +211,17 @@ class BertTransformerDecoder(nn.Module):
             
             hiddens[0][:, t] = hiddens[0][:, t] + embedding.squeeze(1)
             for l in range(len(self.attention_layer.layers)):
-                hiddens[l + 1][:, t] = self.attention_layer.layers[l].feedforward(
-                    self.attention_layer.layers[l].attention(
-                    self.attention_layer.layers[l].selfattn(hiddens[l][:, t], hiddens[l][:, :t+1], hiddens[l][:, :t+1])
-                  , encoder_out, encoder_out, padding=encoder_out_padding))
+                self_attn_out  = self.attention_layer.layers[l].selfattn(hiddens[l][:, t].unsqueeze(1), hiddens[l][:, :t+1], hiddens[l][:, :t+1])
+                attn_encoder = self.attention_layer.layers[l].attention(self_attn_out, encoder_out, encoder_out, padding=encoder_out_padding)
+                feed_forward = self.attention_layer.layers[l].feedforward(attn_encoder)
+                hiddens[l + 1][:, t] = feed_forward.squeeze(1)
+                # hiddens[l + 1][:, t] = self.attention_layer.layers[l].feedforward(
+                #     self.attention_layer.layers[l].attention(
+                #     self.attention_layer.layers[l].selfattn(hiddens[l][:, t].unsqueeze(1), hiddens[l][:, :t+1], hiddens[l][:, :t+1])
+                #   , encoder_out, encoder_out, padding=encoder_out_padding))
             
             decoder_outputs = self.pointer_layer(hiddens[-1][:, t].unsqueeze(1), encoder_out, atten_mask=encoder_out_padding)
-            context_question_outputs, context_question_weight, vocab_pointer_switches = decoder_out
+            context_question_outputs, context_question_weight, vocab_pointer_switches = decoder_outputs
 
             probs = self.probs(self.out, context_question_outputs, vocab_pointer_switches, context_question_weight, encoder_input_ids)
 
@@ -250,6 +260,12 @@ class BertTransformerDecoder(nn.Module):
             module.gamma.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
+
+    def eos(self):
+        return self.dict.eos()
+
+    def pad(self):
+        return self.dict.pad()
 
 
 class PointerDecoder(nn.Module):

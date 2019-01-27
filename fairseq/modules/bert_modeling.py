@@ -173,13 +173,18 @@ class BertEmbeddings(nn.Module):
         self.LayerNorm = BertLayerNorm(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, input_ids, token_type_ids=None, position_id=None):
+    def forward(self, input_ids, token_type_ids=None, position_id=None, position=None):
         seq_length = input_ids.size(1)
         if position_id is None:
             position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         else:
             position_ids = position_id
+
+        if position is not None:
+            position_ids = torch.tensor([position], dtype=torch.long, device=input_ids.device)
+            position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
 

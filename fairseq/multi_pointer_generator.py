@@ -15,18 +15,11 @@ from fairseq.models import FairseqIncrementalDecoder
 
 class SequenceGenerator(object):
     def __init__(
-        self, models
+        self, models, task
     ):
        
         self.models = models
-
-        self.hit_one = 0
-        self.hit_two = 0
-        self.hit_three = 0
-        self.hit_four = 0
-        self.hit_five = 0
-        self.answer_n = 0
-        self.no_answer = 0
+        self.tokenizer = task.tokenizer
         
     def cuda(self):
         for model in self.models:
@@ -50,73 +43,43 @@ class SequenceGenerator(object):
                 continue
             input = s['net_input']
             targets = s["target"]
+            origin_target = self.convert_to_tokens(targets)
 
             with torch.no_grad():
-                probs = self.generate(
+                tokens = self.generate(
                     input
                 )
-                self.record(probs, targets)
             for i, id in enumerate(s['id'].data):
-                yield id, probs[i]
+                yield id, tokens[i], origin_target[i]
 
     def generate(self, encoder_input):
 
         with torch.no_grad():
-            net_outputs = []
-            for model in self.models:
-                net_outputs.append(model(**encoder_input))
-            net_output = net_outputs[0]
-            probs = model.get_normalized_probs(net_output, log_probs=False)
-            return probs
 
-    def eval_report(self):
-        str_report = "**RESULT**  hit_one {}, hit_two {}, hit_three {}, hit_four {}, hit_five {}, answerable {}, non-answerable {}".format(self.hit_one/self.answer_n, self.hit_two/self.answer_n, self.hit_three/self.answer_n, self.hit_four/self.answer_n, self.hit_five/self.answer_n, self.answer_n, self.no_answer)
-        return str_report
+            model= self.models[0]
+            encoder_out =  model.greedy_generater(**encoder_input)
+            generate_ids = encoder_out[0]
+            tokens = self.convert_to_tokens(generate_ids)
+            return tokens
 
-    def record(self, probs, targets):
-        probs = probs.detach().cpu()
-        targets = targets.detach().cpu()
-        hit_one, hit_two, hit_three, hit_four, hit_five, answer_n, no_answer = self.validation(targets, probs)
-        self.hit_one += hit_one
-        self.hit_two += hit_two
-        self.hit_three += hit_three
-        self.hit_four += hit_four
-        self.hit_five += hit_five
-        self.answer_n += answer_n
-        self.no_answer += no_answer
+    def convert_to_tokens(self, ids):
 
-    def validation(self, target, probs):
-        target = target.detach().cpu()
-        probs = probs.detach().cpu()
-        target = target.numpy()
-        probs = probs.numpy()
-        return self.get_histest_score(target, probs)
+        def to_tokens(t):
+            return self.tokenizer.convert_ids_to_tokens(t)
 
-    def get_histest_score(self, targets, probs):
-        hit_one = 0
-        hit_two = 0
-        hit_three = 0
-        hit_four = 0
-        hit_five = 0
-        answer_n = 0
+        eos_ids = self.tokenizer.eos()
+        if not isinstance(ids, list):
+            ids = ids.tolist()
+        tokens = []
+        for item in ids:
+            if eos_ids in item:
+                eos_index = item.index(eos_ids)
+                item = item[:eos_index]
+            tokens.append(to_tokens(item))
+        return tokens
 
-        no_answer = 0
-        for t,p in zip(targets, probs):
-            if sum(t) == 0:
-                no_answer += 1
-                continue
-            answer_n += 1
-            indic = np.argsort(-p)
-            if t[indic[0]] == 1:
-                hit_one += 1
-            if t[indic[0]]==1 or t[indic[1]]==1:
-                hit_two += 1
-            if t[indic[0]]==1 or t[indic[1]]==1 or t[indic[2]]==1:
-                hit_three += 1
-            if t[indic[0]]==1 or t[indic[1]]==1 or t[indic[2]]==1 or t[indic[3]]==1:
-                hit_four += 1 
-            if t[indic[0]]==1 or t[indic[1]]==1 or t[indic[2]]==1 or t[indic[3]]==1 or t[indic[4]]==1:
-                hit_five += 1
-        return hit_one, hit_two, hit_three, hit_four, hit_five, answer_n, no_answer    
 
-    
+
+
+
+
