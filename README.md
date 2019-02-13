@@ -1,10 +1,10 @@
 # Introduction
 
-This is a PyTorch version of (fairseq)[https://github.com/pytorch/fairseq/tree/master/fairseq] With some modifications made by Xiaoma Wu.BUPT.
+This is a PyTorch version of [fairseq](https://github.com/pytorch/fairseq/tree/master/fairseq) With some modifications made by Xiaoma Wu.BUPT.
 
 this respository implement BERT and MulitPointer-generator on the basis of fairseq. 
 
-My implementation references the (@Huggingface)[https://github.com/huggingface/pytorch-pretrained-BERT] Code.
+My implementation references the [@Huggingface](https://github.com/huggingface/pytorch-pretrained-BERT) Code.
 
 
 # Citation
