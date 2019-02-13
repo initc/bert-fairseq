@@ -24,8 +24,9 @@ class BertTransformerModel(BaseFairseqModel):
         :prog:
     """
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, args, encoder, decoder):
         super().__init__()
+        self.args = args
         self.encoder = encoder
         self.decoder = decoder
 
@@ -34,9 +35,10 @@ class BertTransformerModel(BaseFairseqModel):
         deocder_out = self.decoder(prev_output_tokens, encoder_outs)
         return deocder_out
 
-    def greedy_generater(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens):
+    def greedy_generater(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens, max_lens):
         encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
-        decoder_out = self.decoder.greedy_decoder(encoder_outs)
+        decoder_out = self.decoder.greedy_decoder(encoder_outs, max_lens=max_lens)
+        # max_tokens_generate
         return decoder_out
 
 
@@ -73,7 +75,7 @@ class BertTransformerModel(BaseFairseqModel):
         init_encoder_token_type(encoder, token_nums=args.token_types)
         decoder_dictionary = task.tokenizer
         decoder = BertTransformerDecoder(args, encoder.config, decoder_dictionary, decoder_embedding)
-        return BertTransformerModel(encoder, decoder)
+        return BertTransformerModel(args, encoder, decoder)
 
 class BertTransformerEncoder(PreTrainedBertModel):
 
@@ -126,7 +128,7 @@ class BertTransformerDecoder(nn.Module):
             self.linear_answer = nn.Linear(hidden_size, decoder_dim)
             self.ln_answer = nn.LayerNorm(decoder_dim)
 
-        self.attention_layer = TransformerDecoder(decoder_dim, decoder_dim//64, decoder_dim*4, args.decoder_layers, 0.2)
+        self.attention_layer = TransformerDecoder(decoder_dim, 8, decoder_dim*4, args.decoder_layers, 0.2)
         self.pointer_layer = PointerDecoder(decoder_dim, decoder_dim, dropout=0.2)
 
         self.vocab_size = len(dictionary)

@@ -64,7 +64,7 @@ def main(args):
 
     # Initialize generator
     gen_timer = StopwatchMeter()
-
+    gen_timer.start()
     translator = SequenceGenerator(
         models, task
     )
@@ -91,7 +91,7 @@ def main(args):
                 print('origin-taeget -- {}'.format(" ".join(target)))
                 print('hypos-taeget -- {}\n'.format(" ".join(hypos)))
 
-            da = {"g-target":" ".join(hypos), "o-targer":" ".join(target),"query":src_str}
+            da = {"g-target":" ".join(hypos), "o-target":" ".join(target),"query":src_str}
             generate_out[str(sample_id.item())] = da
             num_sentences += 1
 

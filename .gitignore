@@ -109,3 +109,4 @@ ENV/
 # Generated files
 fairseq/temporal_convolution_tbc
 sftp-config*
+generate-out/

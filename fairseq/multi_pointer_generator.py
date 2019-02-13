@@ -17,7 +17,7 @@ class SequenceGenerator(object):
     def __init__(
         self, models, task
     ):
-       
+        self.args = task.args
         self.models = models
         self.tokenizer = task.tokenizer
         
@@ -50,14 +50,14 @@ class SequenceGenerator(object):
                     input
                 )
             for i, id in enumerate(s['id'].data):
-                yield id, tokens[i], origin_target[i]
+                yield id, self.merge_bert_tokens(tokens[i]), self.merge_bert_tokens(origin_target[i])
 
     def generate(self, encoder_input):
 
         with torch.no_grad():
 
             model= self.models[0]
-            encoder_out =  model.greedy_generater(**encoder_input)
+            encoder_out =  model.greedy_generater(**encoder_input, max_lens=self.args.max_tokens_generate)
             generate_ids = encoder_out[0]
             tokens = self.convert_to_tokens(generate_ids)
             return tokens
@@ -78,6 +78,15 @@ class SequenceGenerator(object):
             tokens.append(to_tokens(item))
         return tokens
 
+    def merge_bert_tokens(self, tokens):
+        new_tokens = []
+        new_tokens.append(tokens[0])
+        for tok in tokens[1:]:
+            if tok.startswith("##"):
+                new_tokens[-1] += tok[2:]
+            else:
+                new_tokens.append(tok)
+        return new_tokens
 
 
 

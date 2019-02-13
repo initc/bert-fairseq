@@ -184,6 +184,9 @@ class BertTokenizer(object):
     def cls(self):
         return self.vocab["[CLS]"]
 
+    def cls_2(self):
+        return self.vocab["[unused10]"]
+
     def mask(self):
         return self.vocab["[MASK]"]
 
