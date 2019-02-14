@@ -23,7 +23,7 @@ def get_max_lens(item_a, item_bs):
 
 
 def collate(
-    samples, pad_idx, cls_idx, cls_2idx, sep_idx, max_a_positions, max_b_positions, max_target_positions
+    samples, pad_idx, cls_idx, start_idx1, start_idx2, sep_idx, max_a_positions, max_b_positions, max_target_positions
 ):
     if len(samples) == 0:
         print("hahahaha")
@@ -54,7 +54,7 @@ def collate(
             if query_type == 0:
                 input_ids[i:,0] = cls_idx
             else:
-                input_ids[i:,0] = cls_2idx
+                input_ids[i:,0] = cls_idx
             a = a[1:]
             size_a = min(len(a), max_a)
             size_bs = [min(len(b), max_b) for b in bs]
@@ -80,15 +80,21 @@ def collate(
 
         return input_ids, token_type_ids, attention_mask, position_ids
 
-    def merge_(key_data, max_tokens, copy_eos_to_beginning=True):
+    def merge_(key_type, key_data, max_tokens, copy_eos_to_beginning=True):
+        item_type = [s[key_type] for s in samples]
         values = [s[key_data][:max_tokens] for s in samples]
         size = max(v.size(0)+1 for v in values)
         res = values[0].new(len(values), size).fill_(pad_idx)
 
-        def copy_tensor(src, dst):
+        def copy_tensor(src, dst, token_type):
+            ans_type = token_type[0]
+            assert ans_type==0 or ans_type==1
             assert dst.numel() == src.numel()+1
             if copy_eos_to_beginning:
-                dst[0] = sep_idx
+                if ans_type == 0:
+                    dst[0] = start_idx1
+                else:
+                    dst[0] = start_idx2
                 # dst[0] = eos_idx
                 dst[1:] = src[:]
             else:
@@ -96,16 +102,19 @@ def collate(
                 dst[-1] = sep_idx
                 # dst.copy_(src)
 
-        for i, v in enumerate(values):
-            copy_tensor(v, res[i][:len(v)+1])
+        for i, (v,token_type) in enumerate(zip(values,item_type)):
+            copy_tensor(v, res[i][:len(v)+1], token_type)
         return res
 
 
     id = torch.LongTensor([s['id'] for s in samples])
     input_ids, token_type_ids, attention_mask, position_ids = merge('a_item', 'b_items', max_a_positions, max_b_positions)
-    prev_output_tokens = merge_("t_item", max_target_positions, copy_eos_to_beginning=True)
-    target = merge_("t_item", max_target_positions, copy_eos_to_beginning=False)
+ 
+    prev_output_tokens = merge_("a_item", "t_item", max_target_positions, copy_eos_to_beginning=True)
+    target = merge_("a_item", "t_item", max_target_positions, copy_eos_to_beginning=False)
     ntokens = sum(len(s["t_item"])+1 for s in samples)
+
+    
 
     batch = {
         'id': id,
@@ -120,6 +129,7 @@ def collate(
         },
         "target": target
     }
+
     return batch
 
 
@@ -236,8 +246,8 @@ class BertMultiDataset(FairseqDataset):
                   on the left if *left_pad_target* is ``True``.
         """
         return collate(
-            samples, pad_idx=self.tokenizer.pad(), cls_idx=self.tokenizer.cls(), cls_2idx=self.tokenizer.cls_2(),
-            sep_idx=self.tokenizer.sep(), max_a_positions=self.max_a_positions, max_b_positions=self.max_b_positions,
+            samples, pad_idx=self.tokenizer.pad(), cls_idx=self.tokenizer.cls(),start_idx1=self.tokenizer.start_idx1(), start_idx2=self.tokenizer.start_idx2(),
+            sep_idx=self.tokenizer.sep(), max_a_positions=self.max_a_positions,max_b_positions=self.max_b_positions,
             max_target_positions=self.max_target_positions
         )
 

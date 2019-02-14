@@ -37,7 +37,8 @@ class BertTransformerModel(BaseFairseqModel):
 
     def greedy_generater(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens, max_lens):
         encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
-        decoder_out = self.decoder.greedy_decoder(encoder_outs, max_lens=max_lens)
+        start_idx = prev_output_tokens[0][0]
+        decoder_out = self.decoder.greedy_decoder(encoder_outs, start_idx=start_idx, max_lens=max_lens)
         # max_tokens_generate
         return decoder_out
 
@@ -189,9 +190,8 @@ class BertTransformerDecoder(nn.Module):
 
         return scaled_p_vocab
 
-    def greedy_decoder(self, encoder_outs, max_lens=15):
+    def greedy_decoder(self, encoder_outs, start_idx, pad_idx, max_lens=15):
         eos_idx = self.eos()
-        pad_idx = self.pad()
         encoder_out, encoder_mask, encoder_input_ids = encoder_outs["encoder_output"], encoder_outs["encoder_mask"], encoder_outs["input_ids"]
         encoder_out_padding = encoder_mask.data == pad_idx
 
@@ -206,7 +206,7 @@ class BertTransformerDecoder(nn.Module):
         answer_scores = encoder_out.new_zeros((B, ))
         for t in range(T):
             if t == 0:
-                embedding = self.embedding_token(encoder_out.new_full((B, 1), eos_idx, dtype=torch.long), position=t)
+                embedding = self.embedding_token(encoder_out.new_full((B, 1), start_idx, dtype=torch.long), position=t)
             else:
                 embedding = self.embedding_token(outs[:, t - 1].unsqueeze(1), position=t)
             embedding = self.ln_answer(self.linear_answer(embedding)) if self.args.reduce_dim>0 else embedding
