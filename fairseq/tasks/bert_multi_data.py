@@ -52,7 +52,7 @@ class BertMultiGenerator(FairseqTask):
                             help='max number of tokens in the query sequence')
         parser.add_argument('--max-passage-positions', default=200, type=int, metavar='N',
                             help='max number of tokens in the passage sequence')
-        parser.add_argument('--max-target-positions', default=200, type=int, metavar='N',
+        parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
                             help='max number of tokens in the target sequence')
         # parser.add_argument('--max-tokens', default=3000, type=int, metavar='N',
         #                     help='max number of tokens in one batches')
