@@ -62,6 +62,8 @@ class BertTransformerModel(BaseFairseqModel):
         parser.add_argument("--decoder-lr", default=3e-3, type=float, help="The initial learning rate for decoder layers")
         parser.add_argument("--decoder-lr-scale", default=100, type=float, help="The scale learning rate for decoder layers")
         parser.add_argument("--encoder-lr-scale", default=1, type=float, help="The initial learning rate for encoder layers")
+        parser.add_argument('--decoder-head', default=8, type=int, metavar='N',
+                            help='the number of decoder head')
 
     @classmethod
     def build_model(cls, args, task):
@@ -129,7 +131,7 @@ class BertTransformerDecoder(nn.Module):
             self.linear_answer = nn.Linear(hidden_size, decoder_dim)
             self.ln_answer = nn.LayerNorm(decoder_dim)
 
-        self.attention_layer = TransformerDecoder(decoder_dim, 8, decoder_dim*4, args.decoder_layers, 0.2)
+        self.attention_layer = TransformerDecoder(decoder_dim, self.args.decoder_head, decoder_dim*4, args.decoder_layers, 0.2)
         self.pointer_layer = PointerDecoder(decoder_dim, decoder_dim, dropout=0.2)
 
         self.vocab_size = len(dictionary)
@@ -138,7 +140,8 @@ class BertTransformerDecoder(nn.Module):
         self.apply(self.init_bert_weights)
 
         if args.share_decoder_input_output_embed:
-            self.project = nn.Linear(decoder_dim, hidden_size)
+            if self.args.reduce_dim > 0:
+                self.project = nn.Linear(decoder_dim, hidden_size)
             self.out.weight = embedding_token.word_embeddings.weight
 
     def forward(self, prev_output_tokens, encoder_outs):
@@ -170,7 +173,7 @@ class BertTransformerDecoder(nn.Module):
         size = list(outputs.size())
 
         size[-1] = self.vocab_size
-        if self.args.share_decoder_input_output_embed:
+        if self.args.share_decoder_input_output_embed and self.args.reduce_dim:
             outputs = self.project(outputs)
         # B * Ta * V
         scores = generator(outputs.view(-1, outputs.size(-1))).view(size)
@@ -322,6 +325,8 @@ def init_encoder_token_type(encoder_model, token_nums=3):
 @register_model_architecture('bert_transformer', 'bert_transformer_base')
 def caiyun_base_architecture(args):
     # args.AB_times = getattr(args, 'AB_times', 10)
+    # decoder_head = args.decoder_head
+    
     pass
     
 
