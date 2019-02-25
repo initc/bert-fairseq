@@ -320,14 +320,14 @@ def augument_shffle_top5(passages, queries, answers, prefix="train", dir_file="t
         consumer(passage_5_ds, passage_shuffle[2])
         consumer(target_ds, answer)
 
-        random.shuffle(passage_shuffle)
-        consumer(query_ds, query)
-        consumer(passage_1_ds, passage[0])
-        consumer(passage_2_ds, passage[1])
-        consumer(passage_3_ds, passage_shuffle[0])
-        consumer(passage_4_ds, passage_shuffle[1])
-        consumer(passage_5_ds, passage_shuffle[2])
-        consumer(target_ds, answer)
+        # random.shuffle(passage_shuffle)
+        # consumer(query_ds, query)
+        # consumer(passage_1_ds, passage[0])
+        # consumer(passage_2_ds, passage[1])
+        # consumer(passage_3_ds, passage_shuffle[0])
+        # consumer(passage_4_ds, passage_shuffle[1])
+        # consumer(passage_5_ds, passage_shuffle[2])
+        # consumer(target_ds, answer)
     query_ds.finalize(query_idx)
     passage_1_ds.finalize(passage_1_idx)
     passage_2_ds.finalize(passage_2_idx)
@@ -337,11 +337,64 @@ def augument_shffle_top5(passages, queries, answers, prefix="train", dir_file="t
     target_ds.finalize(target_idx)
 
 
+def make_top_5(select_probs, index_to_ids, ids_data, query_type, prefix, dir_file):
+
+    def probs_select(data):
+        probs = np.array(data)
+        return np.argsort(probs)[::-1].tolist()
+
+    if isinstance(select_probs, str):
+        with open(select_probs, "rb") as f:
+            select_probs= pickle.load(f)
+
+    if isinstance(index_to_ids, str):
+        with open(index_to_ids, "rb") as f:
+            index_to_ids= pickle.load(f)
+
+    if isinstance(ids_data, str):
+        with open(ids_data, "rb") as f:
+            ids_data= pickle.load(f)
+
+    passage_re = []
+    query_re = []
+    answer_re = []
+
+    for index, ids in index_to_ids.items():
+        probs = select_probs[index]["probs"]
+
+        d = ids_data[ids]
 
 
+        max_prob_index = probs_select(probs)[:5]
 
+        top_one = max_prob_index[0]
+        top_two = max_prob_index[1]
+        top_three = max_prob_index[2]
+        top_four = max_prob_index[3]
+        top_five = max_prob_index[4]
 
+        top_one = min(top_one, len(d["ids_passages"])-1)
+        top_two = min(top_two, len(d["ids_passages"])-1)
+        top_three = min(top_three, len(d["ids_passages"])-1)
+        top_four = min(top_four, len(d["ids_passages"])-1)
+        top_five = min(top_five, len(d["ids_passages"])-1)
 
+        ids_passage_one = d["ids_passages"][top_one]
+        ids_passage_two = d["ids_passages"][top_two]
+        ids_passage_three = d["ids_passages"][top_three]
+        ids_passage_four = d["ids_passages"][top_four]
+        ids_passage_five = d["ids_passages"][top_five]
+
+        ids_query = [query_type]+d["ids_query"]
+
+        ids_answer = d["ids_answers"][0]
+
+        passage_re.append([ids_passage_one, ids_passage_two, ids_passage_three, ids_passage_four, ids_passage_five])
+
+        query_re.append(ids_query)
+        answer_re.append(ids_answer)
+
+    augument_shffle_top5(passage_re, query_re, answer_re, prefix=prefix, dir_file=dir_file)
 
 
 

@@ -190,7 +190,7 @@ class BertTransformerDecoder(nn.Module):
 
         return scaled_p_vocab
 
-    def greedy_decoder(self, encoder_outs, start_idx,max_lens=15):
+    def greedy_decoder(self, encoder_outs, start_idx, max_lens=15):
         eos_idx = self.eos()
         pad_idx = self.pad()
         encoder_out, encoder_mask, encoder_input_ids = encoder_outs["encoder_output"], encoder_outs["encoder_mask"], encoder_outs["input_ids"]

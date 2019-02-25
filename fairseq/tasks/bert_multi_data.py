@@ -70,6 +70,8 @@ class BertMultiGenerator(FairseqTask):
         parser.add_argument('--bert-vocab', type=str, default="vocab_file.txt", help="bert tokenizer vocab")
         parser.add_argument('--only-source', action='store_true', help='Only process the A language')
         parser.add_argument('--generate-file', type=str, help="where to save model output")
+        parser.add_argument('--max-tokens-generate', type=int, metavar='N', default=15,
+                            help='max tokens in generate')
 
     def __init__(self, args, bert_tokenuzer=None):
         super().__init__(args)

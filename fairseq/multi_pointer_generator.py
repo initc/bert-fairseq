@@ -46,11 +46,11 @@ class SequenceGenerator(object):
             origin_target = self.convert_to_tokens(targets)
 
             with torch.no_grad():
-                tokens = self.generate(
+                tokens, ppl_probs = self.generate(
                     input
                 )
             for i, id in enumerate(s['id'].data):
-                yield id, self.merge_bert_tokens(tokens[i]), self.merge_bert_tokens(origin_target[i])
+                yield id, self.merge_bert_tokens(tokens[i]), self.merge_bert_tokens(origin_target[i]), ppl_probs[i]/len(tokens[i])
 
     def generate(self, encoder_input):
 
@@ -59,8 +59,9 @@ class SequenceGenerator(object):
             model= self.models[0]
             encoder_out =  model.greedy_generater(**encoder_input, max_lens=self.args.max_tokens_generate)
             generate_ids = encoder_out[0]
+            ppl_probs = encoder_out[1]
             tokens = self.convert_to_tokens(generate_ids)
-            return tokens
+            return tokens, ppl_probs.tolist()
 
     def convert_to_tokens(self, ids):
 

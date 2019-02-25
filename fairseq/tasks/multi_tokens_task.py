@@ -69,6 +69,7 @@ class MultiTokensTask(FairseqTask):
         parser.add_argument('--tokenizer-dir', type=str, help="where to load bert tokenizer")
         parser.add_argument('--bert-vocab', type=str, default="vocab_file.txt", help="bert tokenizer vocab")
         parser.add_argument('--only-source', action='store_true', help='Only process the A language')
+        parser.add_argument('--token-in-encoder', action='store_true', default=False, help='multi token in encoder or decoder')
         parser.add_argument('--generate-file', type=str, help="where to save model output")
         parser.add_argument('--max-tokens-generate', type=int, metavar='N', default=15,
                             help='max tokens in generate')
@@ -140,7 +141,8 @@ class MultiTokensTask(FairseqTask):
             self.tokenizer,
             max_a_positions=self.args.max_query_positions,
             max_b_positions=self.args.max_passage_positions,
-            max_target_positions=self.args.max_target_positions
+            max_target_positions=self.args.max_target_positions,
+            token_in_encoder=self.args.token_in_encoder
         )
 
     def max_positions(self):

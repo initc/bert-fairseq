@@ -82,16 +82,17 @@ def main(args):
             t,cuda=use_cuda
         )
 
-        for sample_id, hypos, target in translations:
+        for sample_id, hypos, target, ppl_probs in translations:
 
             src_str = task.dataset(args.gen_subset).get_origin_text(sample_id.item())
 
             if not args.quiet:
                 print('ID-{}\tQUERY -- {}'.format(sample_id.item(), src_str))
                 print('origin-taeget -- {}'.format(" ".join(target)))
-                print('hypos-taeget -- {}\n'.format(" ".join(hypos)))
+                print('hypos-taeget -- {}'.format(" ".join(hypos)))
+                print('hypos-probs -- {}\n'.format(-ppl_probs))
 
-            da = {"g-target":" ".join(hypos), "o-target":" ".join(target),"query":src_str}
+            da = {"g-target":" ".join(hypos), "o-target":" ".join(target),"query":src_str, "ppl-probs":-ppl_probs}
             generate_out[str(sample_id.item())] = da
             num_sentences += 1
 

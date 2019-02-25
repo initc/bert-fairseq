@@ -23,7 +23,7 @@ def get_max_lens(item_a, item_bs):
 
 
 def collate(
-    samples, pad_idx, cls_idx, start_idx1, start_idx2, sep_idx, max_a_positions, max_b_positions, max_target_positions
+    samples, pad_idx, cls_idx, cls_2idx, start_idx1, start_idx2, sep_idx, max_a_positions, max_b_positions, max_target_positions, token_in_encoder=False
 ):
     if len(samples) == 0:
         print("hahahaha")
@@ -51,10 +51,9 @@ def collate(
         for i, (a, bs) in enumerate(zip(item_a, item_bs)):
             query_type = a[0]
             assert query_type == 0 or query_type == 1
-            if query_type == 0:
-                input_ids[i:,0] = cls_idx
-            else:
-                input_ids[i:,0] = cls_idx
+            input_ids[i:,0] = cls_idx
+            if query_type == 1 and token_in_encoder:
+                input_ids[i:,0] = cls_2idx
             a = a[1:]
             size_a = min(len(a), max_a)
             size_bs = [min(len(b), max_b) for b in bs]
@@ -91,10 +90,12 @@ def collate(
             assert ans_type==0 or ans_type==1
             assert dst.numel() == src.numel()+1
             if copy_eos_to_beginning:
-                if ans_type == 0:
-                    dst[0] = start_idx1
-                else:
-                    dst[0] = start_idx2
+                dst[0] = sep_idx
+                if not token_in_encoder:
+                    if ans_type == 0:
+                        dst[0] = start_idx1
+                    else:
+                        dst[0] = start_idx2
                 # dst[0] = eos_idx
                 dst[1:] = src[:]
             else:
@@ -169,7 +170,7 @@ class BertMultiDataset(FairseqDataset):
         target_dataset, target_sizes, 
         bert_tokenizer,
         max_a_positions=1024, max_b_positions=1024, max_target_positions=1024,
-        shuffle=True, input_feeding=True
+        shuffle=True, input_feeding=True, token_in_encoder=False
     ):
         self.b_count = len(b_datas)
         self.a_data = a_data
@@ -185,7 +186,7 @@ class BertMultiDataset(FairseqDataset):
         self.max_target_positions = max_target_positions
         self.shuffle = shuffle
         self.input_feeding = input_feeding
-
+        self.token_in_encoder = token_in_encoder
 
     def __getitem__(self, index):
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
@@ -246,9 +247,10 @@ class BertMultiDataset(FairseqDataset):
                   on the left if *left_pad_target* is ``True``.
         """
         return collate(
-            samples, pad_idx=self.tokenizer.pad(), cls_idx=self.tokenizer.cls(),start_idx1=self.tokenizer.start_idx1(), start_idx2=self.tokenizer.start_idx2(),
+            samples, pad_idx=self.tokenizer.pad(), cls_idx=self.tokenizer.cls(),cls_2idx=self.tokenizer.cls_2(), start_idx1=self.tokenizer.start_idx1(), start_idx2=self.tokenizer.start_idx2(),
             sep_idx=self.tokenizer.sep(), max_a_positions=self.max_a_positions,max_b_positions=self.max_b_positions,
-            max_target_positions=self.max_target_positions
+            max_target_positions=self.max_target_positions,
+            token_in_encoder=self.token_in_encoder
         )
 
     def get_dummy_batch(self, num_tokens, max_positions, src_len=128, tgt_len=128):
