@@ -173,7 +173,7 @@ class BertTransformerDecoder(nn.Module):
         size = list(outputs.size())
 
         size[-1] = self.vocab_size
-        if self.args.share_decoder_input_output_embed and self.args.reduce_dim:
+        if self.args.share_decoder_input_output_embed and self.args.reduce_dim > 0:
             outputs = self.project(outputs)
         # B * Ta * V
         scores = generator(outputs.view(-1, outputs.size(-1))).view(size)
@@ -326,7 +326,7 @@ def init_encoder_token_type(encoder_model, token_nums=3):
 def caiyun_base_architecture(args):
     # args.AB_times = getattr(args, 'AB_times', 10)
     # decoder_head = args.decoder_head
-    
+
     pass
     
 
