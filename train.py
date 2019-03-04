@@ -34,7 +34,7 @@ def main(args):
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
-
+    torch.cuda.manual_seed(args.seed)
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
 

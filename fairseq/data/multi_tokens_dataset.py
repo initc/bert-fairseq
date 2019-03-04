@@ -71,7 +71,7 @@ def collate(
                 input_ids[i,p_indexs] = sep_idx
 
                 tmp_indexs += 1
-                token_type_ids[i,p_indexs:tmp_indexs] = j
+                token_type_ids[i,p_indexs:tmp_indexs] = j+1
                 position_ids[i,p_indexs:tmp_indexs] = torch.arange(size_bs[j]+1)
                 p_indexs = tmp_indexs
             # MASK
