@@ -57,7 +57,7 @@ class SequenceGenerator(object):
         with torch.no_grad():
 
             model= self.models[0]
-            model.eval()
+            # model.eval()
             encoder_out =  model.greedy_generater(**encoder_input, max_lens=self.args.max_tokens_generate)
             generate_ids = encoder_out[0]
             ppl_probs = encoder_out[1]

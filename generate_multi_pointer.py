@@ -73,6 +73,7 @@ def main(args):
 
     if use_cuda:
         translator.cuda()
+    translator.models[0].eval()
 
     # Generate and compute BLEU score
     # scorer = bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk())
