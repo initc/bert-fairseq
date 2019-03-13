@@ -42,6 +42,18 @@ class BertTransformerModel(BaseFairseqModel):
         # max_tokens_generate
         return decoder_out
 
+    def encoder_out(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens):
+        encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
+        start_idx = prev_output_tokens[0][0]
+        return encoder_outs, start_idx
+        # 
+        # decoder_out = self.decoder.greedy_decoder(encoder_outs, start_idx=start_idx, max_lens=max_lens)
+        # # max_tokens_generate
+        # return decoder_out
+    def decoder_one_step(input_ids, encoder_outs, step):
+        return self.decoder.decoder_one_step(input_ids, encoder_outs, step)
+
+
 
     @staticmethod
     def add_args(parser):
@@ -116,6 +128,31 @@ class BertTransformerEncoder(PreTrainedBertModel):
     def max_positions(self):
         """Maximum input length supported by the encoder."""
         return min(self.max_source_positions, self.config.max_position_embeddings)
+
+    def reorder_encoder_out(self, encoder_out, new_order):
+        """
+        Reorder encoder output according to *new_order*.
+
+        Args:
+            encoder_out: output from the ``forward()`` method
+            new_order (LongTensor): desired order
+
+        Returns:
+            *encoder_out* rearranged according to *new_order*
+        """
+        if encoder_out['encoder_output'] is not None:
+            encoder_out['encoder_output'] = \
+                encoder_out['encoder_output'].index_select(0, new_order)
+
+        if encoder_out['encoder_mask'] is not None:
+            encoder_out['encoder_mask'] = \
+                encoder_out['encoder_mask'].index_select(0, new_order)
+
+        if encoder_out['input_ids'] is not None:
+            encoder_out['input_ids'] = \
+                encoder_out['input_ids'].index_select(0, new_order)
+
+        return encoder_out
 
 class BertTransformerDecoder(nn.Module):
 
@@ -243,6 +280,78 @@ class BertTransformerDecoder(nn.Module):
         #     return outs.view((self.ori_size[0], self.ori_size[1], -1)), answer_scores.view((self.ori_size[0], self.ori_size[1], -1))
         return outs, answer_scores
 
+    def decoder_one_step(self, input_ids, encoder_outs, incremental_state, step, max_lens):
+        eos_idx = self.eos()
+        pad_idx = self.pad()
+        encoder_out, encoder_mask, encoder_input_ids = encoder_outs["encoder_output"], encoder_outs["encoder_mask"], encoder_outs["input_ids"]
+        encoder_out_padding = encoder_mask.data == pad_idx
+
+        B, TC, C = encoder_out.size()
+        T = max_lens # suppose the max length of answer is 15
+        t = step
+        # outs = encoder_out.new_full((B, T), pad_idx, dtype=torch.long)
+
+        
+        if "hiddens" not in incremental_state:
+            hiddens = [encoder_out.new_zeros((B, max_lens+2, C)) for l in range(len(self.attention_layer.layers) + 1)]
+            incremental_state["hiddens"] = hiddens
+        hiddens = incremental_state["hiddens"]
+
+        # hiddens[0] = hiddens[0] #+ positional_encodings_like(hiddens[0])
+        # eos_yet = encoder_out.new_zeros((B, )).byte()
+        # answer_scores = encoder_out.new_zeros((B, ))
+        # for t in range(T):
+        # if t == 0:
+            # embedding = self.embedding_token(encoder_out.new_full((B, 1), start_idx, dtype=torch.long), position=t)
+        # else:
+        embedding = self.embedding_token(input_ids[:, t].unsqueeze(1), position=t)
+        embedding = self.ln_answer(self.linear_answer(embedding)) if self.args.reduce_dim>0 else embedding
+        
+        hiddens[0][:, t] = hiddens[0][:, t] + embedding.squeeze(1)
+        for l in range(len(self.attention_layer.layers)):
+            self_attn_out  = self.attention_layer.layers[l].selfattn(hiddens[l][:, t].unsqueeze(1), hiddens[l][:, :t+1], hiddens[l][:, :t+1])
+            attn_encoder = self.attention_layer.layers[l].attention(self_attn_out, encoder_out, encoder_out, padding=encoder_out_padding)
+            feed_forward = self.attention_layer.layers[l].feedforward(attn_encoder)
+            hiddens[l + 1][:, t] = feed_forward.squeeze(1)
+            # hiddens[l + 1][:, t] = self.attention_layer.layers[l].feedforward(
+            #     self.attention_layer.layers[l].attention(
+            #     self.attention_layer.layers[l].selfattn(hiddens[l][:, t].unsqueeze(1), hiddens[l][:, :t+1], hiddens[l][:, :t+1])
+            #   , encoder_out, encoder_out, padding=encoder_out_padding))
+        
+        decoder_outputs = self.pointer_layer(hiddens[-1][:, t].unsqueeze(1), encoder_out, atten_mask=encoder_out_padding)
+        context_question_outputs, context_question_weight, vocab_pointer_switches = decoder_outputs
+
+        probs = self.probs(self.out, context_question_outputs, vocab_pointer_switches, context_question_weight, encoder_input_ids)
+
+        return probs
+
+        # pred_probs, preds_index = probs.max(-1)
+        # preds_index = preds_index.squeeze(1)
+        # pred_probs = pred_probs.log().squeeze(1)
+        # eos_yet = eos_yet | (preds_index == eos_idx)  # the index of "[SEP]" is 102
+        # answer_scores += pred_probs * (1-eos_yet.float())
+        # outs[:, t] = preds_index.cpu()
+        #     if eos_yet.all():
+        #         break
+        # # if self.reshape:
+        # #     return outs.view((self.ori_size[0], self.ori_size[1], -1)), answer_scores.view((self.ori_size[0], self.ori_size[1], -1))
+        # return outs, answer_scores
+    def reorder_encoder_out(self, encoder_out, new_order):
+        """
+        Reorder encoder output according to *new_order*.
+
+        Args:
+            encoder_out: output from the ``forward()`` method
+            new_order (LongTensor): desired order
+
+        Returns:
+            *encoder_out* rearranged according to *new_order*
+        """
+        if encoder_out['hiddens'] is not None:
+            encoder_out['hiddens'] = \
+                encoder_out['hiddens'].index_select(0, new_order)
+
+        return encoder_out
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""

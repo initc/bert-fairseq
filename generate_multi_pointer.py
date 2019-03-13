@@ -13,7 +13,7 @@ import torch
 
 from fairseq import data, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
-from fairseq.multi_pointer_generator import SequenceGenerator
+from fairseq.multi_pointer_beam_search import SequenceGenerator
 import pickle
 
 
