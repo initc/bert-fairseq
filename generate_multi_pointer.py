@@ -68,12 +68,11 @@ def main(args):
     gen_timer = StopwatchMeter()
     gen_timer.start()
     translator = SequenceGenerator(
-        models, task
+        models, task, beam_size=args.beam, max_lens=args.max_tokens_generate
     )
 
     if use_cuda:
         translator.cuda()
-    translator.models[0].eval()
 
     # Generate and compute BLEU score
     # scorer = bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk())

@@ -4,7 +4,7 @@ import  torch.nn.functional  as F
 import torch
 from . import BaseFairseqModel, register_model, register_model_architecture
 from fairseq.modules.multi_pointer_modeling import TransformerDecoder, DecoderAttention, Feedforward
-
+import pdb
 
 @register_model('bert_transformer')
 class BertTransformerModel(BaseFairseqModel):
@@ -50,8 +50,8 @@ class BertTransformerModel(BaseFairseqModel):
         # decoder_out = self.decoder.greedy_decoder(encoder_outs, start_idx=start_idx, max_lens=max_lens)
         # # max_tokens_generate
         # return decoder_out
-    def decoder_one_step(input_ids, encoder_outs, step):
-        return self.decoder.decoder_one_step(input_ids, encoder_outs, step)
+    def decoder_one_step(self, input_ids, encoder_outs, incremental_states, step, max_lens):
+        return self.decoder.decoder_one_step(input_ids, encoder_outs, incremental_states, step, max_lens)
 
 
 
@@ -291,9 +291,11 @@ class BertTransformerDecoder(nn.Module):
         t = step
         # outs = encoder_out.new_full((B, T), pad_idx, dtype=torch.long)
 
-        
+
         if "hiddens" not in incremental_state:
-            hiddens = [encoder_out.new_zeros((B, max_lens+2, C)) for l in range(len(self.attention_layer.layers) + 1)]
+            layers_nums = len(self.attention_layer.layers) + 1
+            # hiddens = [encoder_out.new_zeros((B, max_lens+2, C)) for l in range(len(self.attention_layer.layers) + 1)]
+            hiddens = encoder_out.new_zeros((layers_nums, B, max_lens+2, C))
             incremental_state["hiddens"] = hiddens
         hiddens = incremental_state["hiddens"]
 
@@ -304,6 +306,7 @@ class BertTransformerDecoder(nn.Module):
         # if t == 0:
             # embedding = self.embedding_token(encoder_out.new_full((B, 1), start_idx, dtype=torch.long), position=t)
         # else:
+        # pdb.set_trace()
         embedding = self.embedding_token(input_ids[:, t].unsqueeze(1), position=t)
         embedding = self.ln_answer(self.linear_answer(embedding)) if self.args.reduce_dim>0 else embedding
         
@@ -336,7 +339,7 @@ class BertTransformerDecoder(nn.Module):
         # # if self.reshape:
         # #     return outs.view((self.ori_size[0], self.ori_size[1], -1)), answer_scores.view((self.ori_size[0], self.ori_size[1], -1))
         # return outs, answer_scores
-    def reorder_encoder_out(self, encoder_out, new_order):
+    def reorder_incremental_state(self, encoder_out, new_order):
         """
         Reorder encoder output according to *new_order*.
 
@@ -349,7 +352,7 @@ class BertTransformerDecoder(nn.Module):
         """
         if encoder_out['hiddens'] is not None:
             encoder_out['hiddens'] = \
-                encoder_out['hiddens'].index_select(0, new_order)
+                encoder_out['hiddens'].index_select(1, new_order)
 
         return encoder_out
 

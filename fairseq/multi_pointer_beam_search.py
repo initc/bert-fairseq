@@ -11,21 +11,24 @@ import torch
 
 from fairseq import search, utils
 from fairseq.models import FairseqIncrementalDecoder
-
+import pdb
 
 class SequenceGenerator(object):
     def __init__(
-        self, models, task
+        self, models, task, beam_size, max_lens
     ):
         self.args = task.args
         self.models = models
         self.tokenizer = task.tokenizer
         self.eos = self.tokenizer.eos()
         self.start_idx = None
+        self.minlen = 1
         self.pad = self.tokenizer.pad()
         self.vocab_size = len(self.tokenizer)
         self.normalize_scores = True
         self.len_penalty = 1
+        self.beam_size = beam_size
+        self.max_lens = max_lens
         self.search = search.BeamSearch(self.tokenizer)
 
     def cuda(self):
@@ -54,20 +57,15 @@ class SequenceGenerator(object):
 
             with torch.no_grad():
                 tokens = self.generate(
-                    input
+                    input, self.beam_size, self.max_lens
                 )
             for i, id in enumerate(s['id'].data):
                 yield id, self.merge_bert_tokens(tokens[i]), self.merge_bert_tokens(origin_target[i]), 1
 
-    def generate(self, encoder_input):
+    def generate(self, encoder_input, beam_size, max_lens):
 
         with torch.no_grad():
-
-            # model= self.models[0]
-            # model.eval()
-            # encoder_out, start_idx =  model.encoder_out(**encoder_input)
-            # self.start_idx = start_idx
-            generate_ids = self.generate_beam(encoder_input, 5, 100)
+            generate_ids = self.generate_beam(encoder_input, beam_size, max_lens)
             tokens = self.convert_to_tokens(generate_ids)
             return tokens
 
@@ -268,9 +266,10 @@ class SequenceGenerator(object):
                     reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-1) * beam_size)
                 for i, model in enumerate(self.models):
                     # if isinstance(model.decoder, FairseqIncrementalDecoder):
+                    # pdb.set_trace()
                     model.decoder.reorder_incremental_state(incremental_states[model], reorder_state)
                     encoder_outs[i] = model.encoder.reorder_encoder_out(encoder_outs[i], reorder_state)
-
+            # pdb.set_trace()
             lprobs = self._decode(tokens[:, :step + 1], encoder_outs, incremental_states, step=step, max_lens = maxlen)
 
             lprobs[:, self.pad] = -math.inf  # never select pad
@@ -411,7 +410,6 @@ class SequenceGenerator(object):
 
             active_bbsz_idx = active_bbsz_idx.view(-1)
             active_scores = active_scores.view(-1)
-
             # copy tokens and scores for active hypotheses
             torch.index_select(
                 tokens[:, :step + 1], dim=0, index=active_bbsz_idx,
@@ -443,14 +441,14 @@ class SequenceGenerator(object):
             scores, scores_buf = scores_buf, scores
             # if attn is not None:
             #     attn, attn_buf = attn_buf, attn
-
+            # pdb.set_trace()
             # reorder incremental state in decoder
             reorder_state = active_bbsz_idx
 
         # sort by score descending
         for sent in range(len(finalized)):
             sorted_tokens = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
-            finalized[sent] = sorted_tokens[0].tolist()
+            finalized[sent] = sorted_tokens[0]["tokens"].tolist()
 
         return finalized
 
@@ -459,23 +457,23 @@ class SequenceGenerator(object):
             return self._decode_one(tokens, self.models[0], encoder_outs[0], incremental_states, step=step, log_probs=True, max_lens=max_lens)
 
         log_probs = []
-        avg_attn = None
+        # avg_attn = None
         for model, encoder_out in zip(self.models, encoder_outs):
-            probs, attn = self._decode_one(tokens, model, encoder_out, log_probs=True)
+            probs = self._decode_one(tokens, model, encoder_out, incremental_states, step=step, log_probs=True, max_lens=max_lens)
             log_probs.append(probs)
-            if attn is not None:
-                if avg_attn is None:
-                    avg_attn = attn
-                else:
-                    avg_attn.add_(attn)
+            # if attn is not None:
+            #     if avg_attn is None:
+            #         avg_attn = attn
+            #     else:
+            #         avg_attn.add_(attn)
         avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(len(self.models))
-        if avg_attn is not None:
-            avg_attn.div_(len(self.models))
-        return avg_probs, avg_attn
+        # if avg_attn is not None:
+        #     avg_attn.div_(len(self.models))
+        return avg_probs
 
     def _decode_one(self, tokens, model, encoder_out, incremental_states, step, log_probs, max_lens):
         with torch.no_grad():
-            decoder_out = model.decoder_one_step(tokens, encoder_out, incremental_states[model], step, max_lens=max_lens)
+            decoder_out = model.decoder_one_step(tokens, encoder_out, incremental_states[model], step, max_lens)
 
             decoder_out = decoder_out[:, -1, :]
             # attn = decoder_out[1]
