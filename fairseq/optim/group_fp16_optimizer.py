@@ -8,7 +8,7 @@
 import torch
 
 from fairseq import optim, utils
-
+import pdb
 
 class DynamicLossScaler(object):
 
@@ -54,7 +54,7 @@ class FP16Optimizer(optim.FairseqOptimizer):
         super().__init__(args, params)
         self.fp32_optimizer = fp32_optimizer
         self.fp32_params = fp32_params
-
+        # print("fp16 scale window ", args.fp16_scale_window)
         if getattr(args, 'fp16_scale_window', None) is None:
             if len(args.update_freq) > 1:
                 raise ValueError(
@@ -70,6 +70,7 @@ class FP16Optimizer(optim.FairseqOptimizer):
             scale_window=scale_window,
             tolerance=args.fp16_scale_tolerance,
         )
+        self.overflow_count = 0
 
     @classmethod
     def build_optimizer(cls, args, params):
@@ -79,18 +80,41 @@ class FP16Optimizer(optim.FairseqOptimizer):
             params (iterable): iterable of parameters to optimize
         """
         # create FP32 copy of parameters and grads
-        total_param_size = sum(p.data.numel() for p in params)
-        fp32_params = params[0].new(0).float().new(total_param_size)
-        offset = 0
-        for p in params:
-            numel = p.data.numel()
-            fp32_params[offset:offset+numel].copy_(p.data.view(-1))
-            offset += numel
-        fp32_params = torch.nn.Parameter(fp32_params)
-        fp32_params.grad = fp32_params.data.new(total_param_size)
+        assert type(params[0])==dict
+        group_fp32_params = []
+        hashcode = 10
+        for param in params:
+            total_param_size = sum([p.data.numel() for p in param["params"]])
+            tmp_params = param["params"][0].new(0).float().new(total_param_size)
+            offset = 0
+            for p in param["params"]:
+                numel = p.data.numel()
+                tmp_params[offset:numel+offset].copy_(p.data.view(-1))
+                offset += numel
+            param["hashcode"] = str(hashcode)
+            hashcode += 1
+            fp32_dict = {}
+            for key, value in param.items():
+                if key=="params":
+                    continue
+                fp32_dict[key] = value
+            fp32_dict["params"] = [torch.nn.Parameter(tmp_params)]
+            fp32_dict["params"][0].grad = fp32_dict["params"][0].data.new(total_param_size)
+            group_fp32_params.append(fp32_dict)
 
-        fp32_optimizer = optim.build_optimizer(args, [fp32_params])
-        return cls(args, params, fp32_optimizer, fp32_params)
+
+        # total_param_size = sum(p.data.numel() for p in params)
+        # fp32_params = params[0].new(0).float().new(total_param_size)
+        # offset = 0
+        # for p in params:
+        #     numel = p.data.numel()
+        #     fp32_params[offset:offset+numel].copy_(p.data.view(-1))
+        #     offset += numel
+        # fp32_params = torch.nn.Parameter(fp32_params)
+        # fp32_params.grad = fp32_params.data.new(total_param_size)
+        # fp32_optimizer = optim.build_optimizer(args, [fp32_params])
+        fp32_optimizer = optim.build_optimizer(args, group_fp32_params)
+        return cls(args, params, fp32_optimizer, group_fp32_params)
 
     @property
     def optimizer(self):
@@ -131,47 +155,102 @@ class FP16Optimizer(optim.FairseqOptimizer):
         function additionally dynamically scales the loss to avoid gradient
         underflow.
         """
+        # pdb.set_trace()
         loss = loss * self.scaler.loss_scale
+        # print("loss. is {}".format(loss))
         loss.backward()
         self._needs_sync = True
 
+    def find_params(self, code):
+        for p in self.fp32_params:
+            if code == p["hashcode"]:
+                return p
+
     def _sync_fp16_grads_to_fp32(self, multiply_grads=1.):
+        
         if self._needs_sync:
             # copy FP16 grads to FP32
-            offset = 0
-            for p in self.params:
-                if not p.requires_grad:
+            for param in self.params:
+                hashcode = param["hashcode"]
+                tmp_params = param["params"]
+                if not tmp_params[0].requires_grad:
                     continue
-                grad_data = p.grad.data if p.grad is not None else p.data.new_zeros(p.data.shape)
-                numel = grad_data.numel()
-                self.fp32_params.grad.data[offset:offset+numel].copy_(grad_data.view(-1))
-                offset += numel
+                cur_fp32_param  = self.find_params(hashcode)["params"][0]
+                offset = 0
+                for p in tmp_params:
+                    grad_data = p.grad.data if p.grad is not None else p.data.new_zeros(p.data.shape)
+                    numel = grad_data.numel()
+                    cur_fp32_param.grad.data[offset:numel+offset].copy_(grad_data.view(-1))
+                    offset += numel
+                cur_fp32_param.grad.data.mul_(multiply_grads / self.scaler.loss_scale)
+            # offset = 0
+            # for p in self.params:
+            #     if not p.requires_grad:
+            #         continue
+            #     grad_data = p.grad.data if p.grad is not None else p.data.new_zeros(p.data.shape)
+            #     numel = grad_data.numel()
+            #     self.fp32_params.grad.data[offset:offset+numel].copy_(grad_data.view(-1))
+            #     offset += numel
 
             # correct for dynamic loss scaler
-            self.fp32_params.grad.data.mul_(multiply_grads / self.scaler.loss_scale)
+            # self.fp32_params.grad.data.mul_(multiply_grads / self.scaler.loss_scale)
 
-            self._needs_sync = False
+        self._needs_sync = False
 
     def multiply_grads(self, c):
         """Multiplies grads by a constant ``c``."""
         if self._needs_sync:
             self._sync_fp16_grads_to_fp32(c)
         else:
-            self.fp32_params.grad.data.mul_(c)
+            for param in self.fp32_params:
+                param["params"][0].grad.data.mul_(c)
+            # self.fp32_params.grad.data.mul_(c)
+
+    def item(self, tensor):
+        if hasattr(tensor, 'item'):
+            return tensor.item()
+        if hasattr(tensor, '__getitem__'):
+            return tensor[0]
+        return tensor
+
+    def clip_grad_norm_(self, tensor_list, max_norm):
+        full_tensor = []
+        # grad_norm = tensor_list[0]["params"][0].grad.data.new_zeros(1)
+        for param in tensor_list:
+            # grad_norm.add_(torch.sum(param["params"][0].grad.data**2))
+            full_tensor.append(param["params"][0].grad.data)
+        full_tensor = torch.cat(full_tensor, dim=0)
+        grad_norm = self.item(torch.norm(full_tensor))
+        # grad_norm = self.item(grad_norm)
+
+        # grad_norm = item(torch.norm(tensor))
+        if grad_norm > max_norm > 0:
+            clip_coef = max_norm / (grad_norm + 1e-6)
+            for param in tensor_list:
+                for p in param["params"]:
+                    p.grad.data.mul_(clip_coef)
+        return grad_norm
+
 
     def clip_grad_norm(self, max_norm):
+        # pdb.set_trace()
         """Clips gradient norm and updates dynamic loss scaler."""
         self._sync_fp16_grads_to_fp32()
-        grad_norm = utils.clip_grad_norm_(self.fp32_params.grad.data, max_norm)
-
+        grad_norm = self.clip_grad_norm_(self.fp32_params, max_norm)
+        # print("grad norm is ", grad_norm)
+        # pdb.set_trace()
         # detect overflow and adjust loss scale
         overflow = DynamicLossScaler.has_overflow(grad_norm)
         self.scaler.update_scale(overflow)
         if overflow:
+            self.overflow_count += 1
+            if self.overflow_count%100 == 0:
+                print("overflow count  ",self.overflow_count)
             if self.scaler.loss_scale <= self.args.min_loss_scale:
                 # Use FloatingPointError as an uncommon error that parent
                 # functions can safely catch to stop training.
                 self.scaler.loss_scale = 64
+                #qsj 
                 # raise FloatingPointError((
                 #     'Minimum loss scale reached ({}). Your loss is probably exploding. '
                 #     'Try lowering the learning rate, using gradient clipping or '
@@ -185,22 +264,38 @@ class FP16Optimizer(optim.FairseqOptimizer):
         self._sync_fp16_grads_to_fp32()
         self.fp32_optimizer.step(closure)
 
-        # copy FP32 params back into FP16 model
-        offset = 0
-        for p in self.params:
-            if not p.requires_grad:
+        for param in self.params:
+            if not param["params"][0].requires_grad:
                 continue
-            numel = p.data.numel()
-            p.data.copy_(self.fp32_params.data[offset:offset+numel].view_as(p.data))
-            offset += numel
+            hashcode = param["hashcode"]
+            offset = 0
+            tmp_fp32_params = self.find_params(hashcode)["params"][0]
+            for p in param["params"]:
+                numel = p.numel()
+                p.data.copy_(tmp_fp32_params.data[offset:offset+numel].view_as(p.data))
+                offset += numel
+        # # copy FP32 params back into FP16 model
+        # offset = 0
+        # for p in self.params:
+        #     if not p.requires_grad:
+        #         continue
+        #     numel = p.data.numel()
+        #     p.data.copy_(self.fp32_params.data[offset:offset+numel].view_as(p.data))
+        #     offset += numel
 
     def zero_grad(self):
         """Clears the gradients of all optimized parameters."""
+        # pdb.set_trace()
         self.fp32_optimizer.zero_grad()
-        for p in self.params:
-            if p.grad is not None:
-                p.grad.detach_()
-                p.grad.zero_()
+        for param in self.params:
+            for p in param["params"]:
+                if p.grad is not None:
+                    p.grad.detach_()
+                    p.grad.zero_()
+        # for p in self.params:
+        #     if p.grad is not None:
+        #         p.grad.detach_()
+        #         p.grad.zero_()
         self._needs_sync = False
 
 

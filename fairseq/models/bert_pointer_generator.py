@@ -4,7 +4,8 @@ import  torch.nn.functional  as F
 import torch
 from . import BaseFairseqModel, register_model, register_model_architecture
 from fairseq.modules.multi_pointer_modeling import TransformerDecoder, DecoderAttention, Feedforward
-import pdb
+from fairseq.modules.layer_norm import LayerNorm
+# import pdb
 
 @register_model('bert_transformer')
 class BertTransformerModel(BaseFairseqModel):
@@ -109,7 +110,7 @@ class BertTransformerEncoder(PreTrainedBertModel):
             # self.linear_answer = nn.Linear(config.hidden_size, decoder_dim)
             self.linear_context = nn.Linear(config.hidden_size, decoder_dim)
             # self.ln_answer = LayerNorm(decoder_dim)
-            self.ln_context = nn.LayerNorm(decoder_dim)
+            self.ln_context = LayerNorm(decoder_dim)
         args.decoder_dim = decoder_dim
         args.hidden_size = config.hidden_size
 
@@ -166,7 +167,7 @@ class BertTransformerDecoder(nn.Module):
         hidden_size = args.hidden_size
         if args.reduce_dim > 0:
             self.linear_answer = nn.Linear(hidden_size, decoder_dim)
-            self.ln_answer = nn.LayerNorm(decoder_dim)
+            self.ln_answer = LayerNorm(decoder_dim)
 
         self.attention_layer = TransformerDecoder(decoder_dim, self.args.decoder_head, decoder_dim*4, args.decoder_layers, 0.2)
         self.pointer_layer = PointerDecoder(decoder_dim, decoder_dim, dropout=0.2)

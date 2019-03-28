@@ -7,6 +7,7 @@ import os
 import sys
 import numpy as np
 import torch.nn as nn
+from fairseq.modules.layer_norm import LayerNorm
 
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torch.nn.utils.rnn import pack_padded_sequence as pack
@@ -35,7 +36,7 @@ def positional_encodings_like(x, t=None):
     return Variable(encodings)
 
 
-LayerNorm = nn.LayerNorm
+# LayerNorm = nn.LayerNorm
 
 
 class ResidualBlock(nn.Module):

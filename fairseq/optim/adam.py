@@ -17,12 +17,13 @@ class FairseqAdam(FairseqOptimizer):
     def __init__(self, args, params):
         super().__init__(args, params)
         self._optimizer = Adam(params, **self.optimizer_config)
-        _params = []
-        for p_d in params:
-            for p in p_d["params"]:
-                if p.grad:
-                    _params.append(p)
-        self._params = _params
+        # _params = []
+        # for p_d in params:
+        #     for p in p_d["params"]:
+        #         if p.grad is not None:
+        #             _params.append(p)
+        # self._params = _params
+        self._params = list(params)
 
     @staticmethod
     def add_args(parser):
@@ -148,10 +149,12 @@ class Adam(torch.optim.Optimizer):
 
                 bias_correction1 = 1 - beta1 ** state['step']
                 bias_correction2 = 1 - beta2 ** state['step']
-                step_size = group['lr'] * group["lr_scale"] * math.sqrt(bias_correction2) / bias_correction1
+                # step_size = group['lr'] * group["lr_scale"] * math.sqrt(bias_correction2) / bias_correction1
+                step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
                 if group['weight_decay'] != 0:
-                    p.data.add_(-group['weight_decay'] * group['lr'] * group["lr_scale"], p.data)
+                    # p.data.add_(-group['weight_decay'] * group['lr'] * group["lr_scale"], p.data)
+                    p.data.add_(-group['weight_decay'] * group['lr'] * 1, p.data)
 
                 p.data.addcdiv_(-step_size, exp_avg, denom)
 
