@@ -33,8 +33,8 @@ class TranslationTask(FairseqTask):
 
     .. note::
 
-        The translation task is compatible with :mod:`train.py <train>`,
-        :mod:`generate.py <generate>` and :mod:`interactive.py <interactive>`.
+        The translation task is compatible with :mod:`fairseq-train`,
+        :mod:`fairseq-generate` and :mod:`fairseq-interactive`.
 
     The translation task provides the following additional command-line
     arguments:
@@ -109,8 +109,8 @@ class TranslationTask(FairseqTask):
             raise Exception('Could not infer language pair, please provide it explicitly')
 
         # load dictionaries
-        src_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.source_lang)))
-        tgt_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.target_lang)))
+        src_dict = cls.load_dictionary(os.path.join(args.data[0], 'dict.{}.txt'.format(args.source_lang)))
+        tgt_dict = cls.load_dictionary(os.path.join(args.data[0], 'dict.{}.txt'.format(args.target_lang)))
         assert src_dict.pad() == tgt_dict.pad()
         assert src_dict.eos() == tgt_dict.eos()
         assert src_dict.unk() == tgt_dict.unk()
@@ -191,6 +191,9 @@ class TranslationTask(FairseqTask):
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
         )
+
+    def build_dataset_for_inference(self, src_tokens, src_lengths):
+        return LanguagePairDataset(src_tokens, src_lengths, self.source_dictionary)
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""

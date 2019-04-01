@@ -50,6 +50,7 @@ class Trainer(object):
         self._num_updates = 0
         self._optim_history = None
         self._optimizer = None
+        self._prev_grad_norm = None
         self._wrapped_model = None
 
         self.init_meters(args)
@@ -99,14 +100,14 @@ class Trainer(object):
         # params = list(filter(lambda p: p.requires_grad, self.model.parameters()))
         model = self.model
         no_decay = ['bias', 'gamma', 'beta', 'LayerNorm.bias', 'LayerNorm.weight']
-        params = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
-        ]
+        # params = [
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
+        # ]
         # params = [{"params":[p for n, p in model.named_parameters()], "lr_scale":1}]
-        # params = [p for n, p in model.named_parameters()]
+        params = [p for n, p in model.named_parameters()]
         if self.args.fp16:
             if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
                 print('| WARNING: your device does NOT support faster training with --fp16, '
@@ -129,7 +130,7 @@ class Trainer(object):
         if distributed_utils.is_master(self.args):  # only save one checkpoint
             extra_state['train_meters'] = self.meters
             utils.save_state(
-                filename, self.args, self.get_model(), self.criterion, self.optimizer,
+                filename, self.args, self.get_model().state_dict(), self.criterion, self.optimizer,
                 self.lr_scheduler, self._num_updates, self._optim_history, extra_state,
             )
 
@@ -168,13 +169,7 @@ class Trainer(object):
 
     def train_step(self, samples, dummy_batch=False):
         """Do forward, backward and parameter update."""
-        # Set seed based on args.seed and the update number so that we get
-        # reproducible results when resuming from checkpoints
-        seed = self.args.seed + self.get_num_updates()
-        torch.manual_seed(seed)
-        if self.cuda:
-            torch.cuda.manual_seed(seed)
-
+        self._set_seed()
         self.model.train()
         self.criterion.train()
         self.zero_grad()
@@ -217,7 +212,7 @@ class Trainer(object):
                     sample_sizes.append(sample_size)
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    print('| WARNING: ran out of memory, skipping batch')
+                    print(('| WARNING: ran out of memory with exception: {};\n Skipping batch').format(str(e)))
                     ooms += 1
                     self.zero_grad()
                 else:
@@ -231,12 +226,15 @@ class Trainer(object):
 
         # gather logging outputs from all replicas
         if self.args.distributed_world_size > 1:
-            logging_outputs, sample_sizes, ooms = zip(*distributed_utils.all_gather_list(
-                [logging_outputs, sample_sizes, ooms],
-            ))
+            logging_outputs, sample_sizes, ooms, prev_norms = \
+                zip(*distributed_utils.all_gather_list(
+                    [logging_outputs, sample_sizes, ooms, self._prev_grad_norm],
+                ))
             logging_outputs = list(chain.from_iterable(logging_outputs))
             sample_sizes = list(chain.from_iterable(sample_sizes))
             ooms = sum(ooms)
+            assert all(norm == prev_norms[0] for norm in prev_norms), \
+                'Fatal error: gradients are inconsistent between workers'
 
         self.meters['oom'].update(ooms, len(samples))
         if ooms == self.args.distributed_world_size * len(samples):
@@ -262,6 +260,7 @@ class Trainer(object):
 
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
+            self._prev_grad_norm = grad_norm
 
             # take an optimization step
             self.optimizer.step()
@@ -405,3 +404,11 @@ class Trainer(object):
         if self.cuda:
             sample = utils.move_to_cuda(sample)
         return sample
+
+    def _set_seed(self):
+        # Set seed based on args.seed and the update number so that we get
+        # reproducible results when resuming from checkpoints
+        seed = self.args.seed + self.get_num_updates()
+        torch.manual_seed(seed)
+        if self.cuda:
+            torch.cuda.manual_seed(seed)

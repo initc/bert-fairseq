@@ -138,6 +138,47 @@ class TestTranslation(unittest.TestCase):
                 train_translation_model(data_dir, 'transformer_iwslt_de_en')
                 generate_main(data_dir)
 
+    def test_lightconv(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory('test_lightconv') as data_dir:
+                create_dummy_data(data_dir)
+                preprocess_translation_data(data_dir)
+                train_translation_model(data_dir, 'lightconv_iwslt_de_en', [
+                    '--encoder-conv-type', 'lightweight',
+                    '--decoder-conv-type', 'lightweight',
+                ])
+                generate_main(data_dir)
+
+    def test_dynamicconv(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory('test_dynamicconv') as data_dir:
+                create_dummy_data(data_dir)
+                preprocess_translation_data(data_dir)
+                train_translation_model(data_dir, 'lightconv_iwslt_de_en', [
+                    '--encoder-conv-type', 'dynamic',
+                    '--decoder-conv-type', 'dynamic',
+                ])
+                generate_main(data_dir)
+
+    def test_mixture_of_experts(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory('test_moe') as data_dir:
+                create_dummy_data(data_dir)
+                preprocess_translation_data(data_dir)
+                train_translation_model(data_dir, 'transformer_iwslt_de_en', [
+                    '--task', 'translation_moe',
+                    '--method', 'hMoElp',
+                    '--mean-pool-gating-network',
+                    '--num-experts', '3',
+                ])
+                generate_main(data_dir, [
+                    '--task', 'translation_moe',
+                    '--method', 'hMoElp',
+                    '--mean-pool-gating-network',
+                    '--num-experts', '3',
+                    '--gen-expert', '0'
+                ])
+
 
 class TestStories(unittest.TestCase):
 
@@ -179,6 +220,29 @@ class TestLanguageModeling(unittest.TestCase):
                 eval_lm_main(data_dir)
 
 
+class TestCommonOptions(unittest.TestCase):
+
+    def test_optimizers(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory('test_optimizers') as data_dir:
+                # Use just a bit of data and tiny model to keep this test runtime reasonable
+                create_dummy_data(data_dir, num_examples=10, maxlen=5)
+                preprocess_translation_data(data_dir)
+                optimizers = ['adafactor', 'adam', 'nag', 'adagrad', 'sgd', 'adadelta']
+                last_checkpoint = os.path.join(data_dir, 'checkpoint_last.pt')
+                for optimizer in optimizers:
+                    if os.path.exists(last_checkpoint):
+                        os.remove(last_checkpoint)
+                    train_translation_model(data_dir, 'lstm', [
+                        '--required-batch-size-multiple', '1',
+                        '--encoder-layers', '1',
+                        '--encoder-hidden-size', '32',
+                        '--decoder-layers', '1',
+                        '--optimizer', optimizer,
+                    ])
+                    generate_main(data_dir)
+
+
 def create_dummy_data(data_dir, num_examples=1000, maxlen=20):
 
     def _create_dummy_data(filename):
@@ -201,7 +265,7 @@ def create_dummy_data(data_dir, num_examples=1000, maxlen=20):
 
 
 def preprocess_translation_data(data_dir, extra_flags=None):
-    preprocess_parser = preprocess.get_parser()
+    preprocess_parser = options.get_preprocessing_parser()
     preprocess_args = preprocess_parser.parse_args(
         [
             '--source-lang', 'in',
@@ -226,7 +290,6 @@ def train_translation_model(data_dir, arch, extra_flags=None):
             data_dir,
             '--save-dir', data_dir,
             '--arch', arch,
-            '--optimizer', 'nag',
             '--lr', '0.05',
             '--max-tokens', '500',
             '--max-epoch', '1',
@@ -260,6 +323,7 @@ def generate_main(data_dir, extra_flags=None):
 
     # evaluate model interactively
     generate_args.buffer_size = 0
+    generate_args.input = '-'
     generate_args.max_sentences = None
     orig_stdin = sys.stdin
     sys.stdin = StringIO('h e l l o\n')
@@ -268,7 +332,7 @@ def generate_main(data_dir, extra_flags=None):
 
 
 def preprocess_lm_data(data_dir):
-    preprocess_parser = preprocess.get_parser()
+    preprocess_parser = options.get_preprocessing_parser()
     preprocess_args = preprocess_parser.parse_args([
         '--only-source',
         '--trainpref', os.path.join(data_dir, 'train.out'),

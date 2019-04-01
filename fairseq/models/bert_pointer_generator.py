@@ -375,8 +375,8 @@ class BertTransformerDecoder(nn.Module):
             # cf https://github.com/pytorch/pytorch/pull/5617
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.beta.data.normal_(mean=0.0, std=self.config.initializer_range)
-            module.gamma.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.zero_()
+            module.bias.data.fill_(1.0)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
@@ -416,8 +416,8 @@ def build_decoder_embedding(encoder):
     decoder_embedding.word_embeddings.weight.data.copy_(encoder_embedding.word_embeddings.weight.data)
     decoder_embedding.position_embeddings.weight.data.copy_(encoder_embedding.position_embeddings.weight.data)
     decoder_embedding.token_type_embeddings.weight.data.copy_(encoder_embedding.token_type_embeddings.weight.data)
-    decoder_embedding.LayerNorm.gamma.data.copy_(encoder_embedding.LayerNorm.gamma.data)
-    decoder_embedding.LayerNorm.beta.data.copy_(encoder_embedding.LayerNorm.beta.data)
+    decoder_embedding.LayerNorm.weight.data.copy_(encoder_embedding.LayerNorm.weight.data)
+    decoder_embedding.LayerNorm.bias.data.copy_(encoder_embedding.LayerNorm.bias.data)
     return decoder_embedding
 
 def init_encoder_token_type(encoder_model, token_nums=3):

@@ -5,8 +5,10 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-from fairseq.data import data_utils, FairseqDataset, iterators
 import torch
+
+from fairseq import tokenizer
+from fairseq.data import data_utils, FairseqDataset, iterators, Dictionary
 
 
 class FairseqTask(object):
@@ -23,6 +25,35 @@ class FairseqTask(object):
     def __init__(self, args):
         self.args = args
         self.datasets = {}
+
+    @classmethod
+    def load_dictionary(cls, filename):
+        """Load the dictionary from the filename
+
+        Args:
+            filename (str): the filename
+        """
+        return Dictionary.load(filename)
+
+    @classmethod
+    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
+        """Build the dictionary
+
+        Args:
+            filenames (list): list of filenames
+            workers (int): number of concurrent workers
+            threshold (int): defines the minimum word count
+            nwords (int): defines the total number of words in the final dictionary,
+                including special symbols
+            padding_factor (int): can be used to pad the dictionary size to be a
+                multiple of 8, which is important on some hardware (e.g., Nvidia
+                Tensor Cores).
+        """
+        d = Dictionary()
+        for filename in filenames:
+            Dictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
+        d.finalize(threshold=threshold, nwords=nwords, padding_factor=padding_factor)
+        return d
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -148,6 +179,31 @@ class FairseqTask(object):
         from fairseq import criterions
         return criterions.build_criterion(args, self)
 
+    def build_generator(self, args):
+        if args.score_reference:
+            from fairseq.sequence_scorer import SequenceScorer
+            return SequenceScorer(self.target_dictionary)
+        else:
+            from fairseq.sequence_generator import SequenceGenerator
+            return SequenceGenerator(
+                self.target_dictionary,
+                beam_size=args.beam,
+                max_len_a=args.max_len_a,
+                max_len_b=args.max_len_b,
+                min_len=args.min_len,
+                stop_early=(not args.no_early_stop),
+                normalize_scores=(not args.unnormalized),
+                len_penalty=args.lenpen,
+                unk_penalty=args.unkpen,
+                sampling=args.sampling,
+                sampling_topk=args.sampling_topk,
+                sampling_temperature=args.sampling_temperature,
+                diverse_beam_groups=args.diverse_beam_groups,
+                diverse_beam_strength=args.diverse_beam_strength,
+                match_source_len=args.match_source_len,
+                no_repeat_ngram_size=args.no_repeat_ngram_size,
+            )
+
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
         """
         Do forward and backward, and return the loss as computed by *criterion*
@@ -169,7 +225,6 @@ class FairseqTask(object):
                 - logging outputs to display while training
         """
         model.train()
-
         loss, sample_size, logging_output = criterion(model, sample)
         if ignore_grad:
             loss *= 0
@@ -182,17 +237,15 @@ class FairseqTask(object):
             loss, sample_size, logging_output = criterion(model, sample)
         return loss, sample_size, logging_output
 
-    def init_logging_output(self, sample):
-        return {
-            'ntokens': sample['ntokens'] if sample is not None else 0,
-            'nsentences': sample['target'].size(0) if sample is not None else 0,
-        }
+    def inference_step(self, generator, models, sample, prefix_tokens=None):
+        with torch.no_grad():
+            return generator.generate(models, sample, prefix_tokens=prefix_tokens)
 
     def grad_denom(self, sample_sizes, criterion):
         return criterion.__class__.grad_denom(sample_sizes)
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
-        return criterion._aggregate_logging_outputs(logging_outputs)
+        return criterion.__class__.aggregate_logging_outputs(logging_outputs)
 
     def max_positions(self):
         """Return the max input length allowed by the task."""

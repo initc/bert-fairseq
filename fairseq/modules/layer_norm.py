@@ -14,5 +14,6 @@ def LayerNorm(normalized_shape, eps=1e-5, elementwise_affine=True, export=False)
             from apex.normalization import FusedLayerNorm
             return FusedLayerNorm(normalized_shape, eps, elementwise_affine)
         except ImportError:
+            print("Better speed can be achieved with apex installed from https://www.github.com/nvidia/apex .")
             pass
     return torch.nn.LayerNorm(normalized_shape, eps, elementwise_affine)

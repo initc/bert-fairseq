@@ -11,8 +11,6 @@ import struct
 import numpy as np
 import torch
 
-from fairseq.tokenizer import Tokenizer
-
 
 def read_longs(f, n):
     a = np.empty(n, dtype=np.int64)
@@ -168,11 +166,11 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
         self.size = len(self.tokens_list)
 
     def read_data(self, path, dictionary):
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 self.lines.append(line.strip('\n'))
-                tokens = Tokenizer.tokenize(
-                    line, dictionary, add_if_not_exist=False,
+                tokens = dictionary.encode_line(
+                    line, add_if_not_exist=False,
                     append_eos=self.append_eos, reverse_order=self.reverse_order,
                 ).long()
                 self.tokens_list.append(tokens)

@@ -11,17 +11,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fairseq import options
-from fairseq import utils
-
+from fairseq import options, utils
 from fairseq.modules import (
-    AdaptiveInput, AdaptiveSoftmax, CharacterTokenEmbedder, LearnedPositionalEmbedding, MultiheadAttention,
-    SinusoidalPositionalEmbedding
+    AdaptiveInput, AdaptiveSoftmax, CharacterTokenEmbedder, LayerNorm,
+    LearnedPositionalEmbedding, MultiheadAttention, SinusoidalPositionalEmbedding,
 )
 
 from . import (
-    FairseqIncrementalDecoder, FairseqEncoder, FairseqLanguageModel, FairseqModel, register_model,
-    register_model_architecture,
+    FairseqIncrementalDecoder, FairseqEncoder, FairseqLanguageModel,
+    FairseqModel, register_model, register_model_architecture,
 )
 
 
@@ -198,7 +196,7 @@ class TransformerLanguageModel(FairseqLanguageModel):
                             help='size of character embeddings')
         parser.add_argument('--char-embedder-highway-layers', type=int, metavar='N', default=2,
                             help='number of highway layers for character token embeddder')
-        parser.add_argument('--adaptive-input', default=False, action='store_true',
+        parser.add_argument('--adaptive-input', action='store_true',
                             help='if set, uses adaptive input')
         parser.add_argument('--adaptive-input-factor', type=float, metavar='N',
                             help='adaptive input factor')
@@ -766,11 +764,6 @@ def Embedding(num_embeddings, embedding_dim, padding_idx):
     return m
 
 
-def LayerNorm(embedding_dim):
-    m = nn.LayerNorm(embedding_dim)
-    return m
-
-
 def Linear(in_features, out_features, bias=True):
     m = nn.Linear(in_features, out_features, bias)
     nn.init.xavier_uniform_(m.weight)
@@ -818,6 +811,7 @@ def base_lm_architecture(args):
 
 @register_model_architecture('transformer_lm', 'transformer_lm_big')
 def transformer_lm_big(args):
+    args.decoder_layers = getattr(args, 'decoder_layers', 12)
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
     args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', 4096)
     args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 16)
@@ -826,7 +820,16 @@ def transformer_lm_big(args):
 
 @register_model_architecture('transformer_lm', 'transformer_lm_wiki103')
 def transformer_lm_wiki103(args):
+    args.decoder_layers = getattr(args, 'decoder_layers', 16)
+    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 8)
     args.dropout = getattr(args, 'dropout', 0.3)
+    args.adaptive_input = getattr(args, 'adaptive_input', True)
+    args.tie_adaptive_weights = getattr(args, 'tie_adaptive_weights', True)
+    args.adaptive_input_cutoff = getattr(args, 'adaptive_input_cutoff', '20000,60000')
+    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', '20000,60000')
+    args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0.2)
+    args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
+    args.relu_dropout = getattr(args, 'relu_dropout', 0.1)
     transformer_lm_big(args)
 
 
@@ -862,6 +865,7 @@ def base_architecture(args):
     args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
     args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
     args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
+    args.adaptive_input = getattr(args, 'adaptive_input', False)
 
     args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)

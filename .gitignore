@@ -110,3 +110,5 @@ ENV/
 fairseq/temporal_convolution_tbc
 sftp-config*
 generate-out/
+# data
+data-bin/
