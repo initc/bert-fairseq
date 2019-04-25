@@ -27,12 +27,12 @@ def collate(
         print("hahahaha")
         return {}
     batch_size = len(samples)
-    def merge(key_a, key_b, max_a, max_b):
+    def merge(key_a, key_t, max_a):
         
         item_a = [s[key_a] for s in samples]
-        item_b = [s[key_b] for s in samples]
+        item_t = [s[key_t] for s in samples]
 
-        assert len(item_a)==len(item_b)
+        assert len(item_a)==len(item_t)
 
 
         max_lens = get_max_lens(item_a)
@@ -46,14 +46,14 @@ def collate(
         # except cls
         target_ids = torch.LongTensor(sizes, max_lens-1).fill_(pad_idx)
         input_ids[:,0] = cls_idx
-        for i, (a, b) in enumerate(zip(item_a, item_b)):
-            assert len(a)==len(b)
+        for i, (a, t) in enumerate(zip(item_a, item_t)):
+            assert len(a)==len(t)
             size_ab = len(a)
             # sep_A
             input_ids[i,1:size_ab+1] = a[:size_ab]
             input_ids[i,size_ab+1] = sep_idx
             attention_mask[i,:size_ab+2]=1
-            target_ids[i,0:size_ab] = b[:size_ab]
+            target_ids[i,0:size_ab] = t[:size_ab]
 
 
         return input_ids, token_type_ids, attention_mask, target_ids
@@ -61,7 +61,7 @@ def collate(
 
 
     id = torch.LongTensor([s['id'] for s in samples])
-    input_ids, token_type_ids, attention_mask, target_ids = merge('a_item', 'b_items', max_a_positions, max_b_positions)
+    input_ids, token_type_ids, attention_mask, target_ids = merge('a_item', 't_item', max_source_positions)
 
     ntokens = sum(len(s["t_item"])+1 for s in samples)
 
@@ -124,6 +124,7 @@ class NERPairDataset(FairseqDataset):
         self.tokenizer = bert_tokenizer
         self.tgt_dict = tgt_dict
         self.max_source_positions = max_source_positions
+        self.max_target_positions = len(self.tgt_dict)
         self.shuffle = shuffle
         self.input_feeding = input_feeding
 
@@ -144,7 +145,7 @@ class NERPairDataset(FairseqDataset):
         #         src_item = self.src[index][:-1]
 
         src_item = self.src_data[index]
-        tgt_item = self.tgt_datas[index]
+        tgt_item = self.tgt_data[index]
         return {
             'id': index,
             'a_item': src_item,
@@ -152,7 +153,7 @@ class NERPairDataset(FairseqDataset):
         }
 
     def __len__(self):
-        return len(self.target_dataset)
+        return len(self.tgt_data)
 
     def collater(self, samples):
         """Merge a list of samples to form a mini-batch.
@@ -200,8 +201,7 @@ class NERPairDataset(FairseqDataset):
             {
                 'id': i,
                 'a_item': torch.Tensor(src_len//2).uniform_(2, 20).long(),
-                'b_items': [torch.Tensor(src_len//2).uniform_(2, 200).long() for _ in range(self.b_count)],
-                "t_item": torch.Tensor(tgt_len).uniform_(2, 20).long(),
+                "t_item": torch.Tensor(src_len//2).uniform_(2, 20).long(),
             }
             for i in range(bsz)
         ])

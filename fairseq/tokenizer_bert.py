@@ -19,7 +19,7 @@
 import collections
 import unicodedata
 import os
-# import logging
+import json
 
 from .file_utils import cached_path
 
@@ -214,6 +214,10 @@ class BertNERDictionary(object):
 
     def __len__(self):
         return len(self.label_dict)
+
+    def pad(self):
+        return self.label_dict["PAD"]
+
 
     
 

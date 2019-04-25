@@ -76,7 +76,7 @@ def fix_layers(bert_model, layers):
             # print("| name fix : {}".format(name))
 
 
-    
+
 @register_model_architecture('bert_NER_model', 'bert_NER_model')
 def caiyun_base_architecture(args):
     args.AB_times = getattr(args, 'AB_times', 10)

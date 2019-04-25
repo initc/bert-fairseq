@@ -16,7 +16,7 @@ from fairseq.data import (
 
 from fairseq.data.indexed_dataset import BertIndexedCachedDataset
 
-from fairseq.data.ner_pair_dateset import NERPairDataset
+from fairseq.data.ner_pair_dataset import NERPairDataset
 from fairseq.tokenizer_bert import BertTokenizer, BertNERDictionary
 
 from . import FairseqTask, register_task
@@ -128,7 +128,7 @@ class BertNERTask(FairseqTask):
             source_dataset, source_dataset.sizes,
             target_dataset, target_dataset.sizes,
             self.tokenizer, self.target_dictionary,
-            max_source_positions=self.max_source_positions,
+            max_source_positions=self.args.max_source_positions,
         )
 
     def max_positions(self):
@@ -143,7 +143,7 @@ class BertNERTask(FairseqTask):
     @property
     def target_dictionary(self):
         """Return the target :class:`~fairseq.data.Dictionary`."""
-        return self.target_dictionary
+        return self.target_dict
 
     def get_batch_iterator(
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
