@@ -79,6 +79,7 @@ def whitespace_tokenize_(text):
             prev_is_whitespace = False
     return tokens_lists
 
+
 class BertTokenizer(object):
     """Runs end-to-end tokenization: punctuation splitting + wordpiece"""
     def __init__(self, vocab_file, do_lower_case=True):
@@ -206,7 +207,15 @@ class BertTokenizer(object):
     def __len__(self):
         return len(self.vocab)
 
+class BertNERDictionary(object):
+    def __init__(self, dictionary_file):
+        self.label_dict = json.loads(open(dictionary_file).read())
 
+
+    def __len__(self):
+        return len(self.label_dict)
+
+    
 
 class BasicTokenizer(object):
     """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""

@@ -99,14 +99,14 @@ class Trainer(object):
         # params = list(filter(lambda p: p.requires_grad, self.model.parameters()))
         model = self.model
         no_decay = ['bias', 'gamma', 'beta', 'LayerNorm.bias', 'LayerNorm.weight']
-        params = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
-        ]
+        # params = [
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
+        # ]
         # params = [{"params":[p for n, p in model.named_parameters()], "lr_scale":1}]
-        # params = [p for n, p in model.named_parameters()]
+        params = [p for n, p in model.named_parameters()]
         if self.args.fp16:
             if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
                 print('| WARNING: your device does NOT support faster training with --fp16, '
