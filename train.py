@@ -228,12 +228,23 @@ def validate(args, trainer, task, epoch_itr, subsets):
             if meter is not None:
                 meter.reset()
         extra_meters = collections.defaultdict(lambda: AverageMeter())
-
+        correct_num = 0
+        predict_num = 0
+        target_num = 0
         for sample in progress:
             log_output = trainer.valid_step(sample)
 
             for k, v in log_output.items():
                 if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
+                    continue
+                if k=="correct":
+                    correct_num += v
+                    continue
+                if k=="predict":
+                    predict_num += v
+                    continue
+                if k=="target":
+                    target_num += v
                     continue
                 extra_meters[k].update(v)
 
@@ -241,6 +252,9 @@ def validate(args, trainer, task, epoch_itr, subsets):
         stats = get_valid_stats(trainer)
         for k, meter in extra_meters.items():
             stats[k] = meter.avg
+        stats["acc"] = correct_num/predict_num
+        stats["recall"] = correct_num/target_num
+        stats["F1"] = (2*stats["acc"]*stats["recall"])/(stats["recall"]+stats["acc"])
         progress.print(stats)
 
         valid_losses.append(stats['valid_loss'])

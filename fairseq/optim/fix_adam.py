@@ -20,7 +20,7 @@ class FixFairseqAdam(FairseqOptimizer):
         _params = []
         for p_d in params:
             for p in p_d["params"]:
-                if p.grad:
+                if p.requires_grad:
                     _params.append(p)
         self._params = _params
 
@@ -165,6 +165,5 @@ class Adam(torch.optim.Optimizer):
                 if group['weight_decay'] != 0:
                     p.data.add_(-group['weight_decay'] * group['lr'] * group["lr_scale"], p.data)
                     # p.data.add_(-group['weight_decay'] * group['lr'], p.data)
-
                 p.data.addcdiv_(-step_size, exp_avg, denom)
         return loss

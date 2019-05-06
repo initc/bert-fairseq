@@ -21,7 +21,7 @@ def get_max_lens(item_a):
 
 
 def collate(
-    samples, pad_idx, cls_idx, sep_idx, max_source_positions
+    samples, pad_idx, cls_idx, sep_idx, max_source_positions=512
 ):
     if len(samples) == 0:
         print("hahahaha")
@@ -29,8 +29,8 @@ def collate(
     batch_size = len(samples)
     def merge(key_a, key_t, max_a):
         
-        item_a = [s[key_a] for s in samples]
-        item_t = [s[key_t] for s in samples]
+        item_a = [s[key_a][:max_source_positions] for s in samples]
+        item_t = [s[key_t][:max_source_positions] for s in samples]
 
         assert len(item_a)==len(item_t)
 

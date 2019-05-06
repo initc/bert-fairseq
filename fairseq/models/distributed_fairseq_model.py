@@ -73,5 +73,5 @@ def DistributedFairseqModel(args, model):
             if hasattr(wrapped_module, name):
                 return getattr(wrapped_module, name)
             return super().__getattr__(name)
-
+    init_kwargs["find_unused_parameters"] = True
     return _DistributedFairseqModel(**init_kwargs)

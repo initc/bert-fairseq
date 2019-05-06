@@ -10,9 +10,10 @@ from . import BaseFairseqModel, register_model, register_model_architecture
 class BertNERModel(BaseFairseqModel):
 
 
-    def __init__(self, model):
+    def __init__(self, model, target_dictionary):
         super().__init__()
         self.model = model
+        self.target_dictionary = target_dictionary
 
     def forward(self, input_ids, token_type_ids, attention_mask):
         cls_score = self.model(input_ids, token_type_ids, attention_mask)
@@ -23,6 +24,9 @@ class BertNERModel(BaseFairseqModel):
             return F.log_softmax(net_output)
         else:
             return F.softmax(net_output)
+
+    def info_acc(self, predict, target):
+        return self.target_dictionary.info_acc(predict, target)
 
 
     @staticmethod
@@ -41,7 +45,7 @@ class BertNERModel(BaseFairseqModel):
         # fix_layers(model.bert, list(range(0,20))+["embeddings"])
 
 
-        return BertNERModel(model)
+        return BertNERModel(model, task.target_dictionary)
 
 class NERModel(PreTrainedBertModel):
 

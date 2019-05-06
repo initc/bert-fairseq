@@ -96,15 +96,15 @@ class Trainer(object):
         return self._lr_scheduler
 
     def _build_optimizer(self):
-        # params = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        params = list(filter(lambda p: p.requires_grad, self.model.parameters()))
         model = self.model
         no_decay = ['bias', 'gamma', 'beta', 'LayerNorm.bias', 'LayerNorm.weight']
-        params = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
-        ]
+        # params = [
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.01, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.01, 'lr_scale': self.args.decoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' in n or 'embedding_token' in n)], 'weight_decay': 0.0, 'lr_scale': self.args.encoder_lr_scale},
+        # {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay) and ('bert' not in n and 'embedding_token' not in n)], 'weight_decay': 0.0, 'lr_scale': self.args.decoder_lr_scale},
+        # ]
         # params = [{"params":[p for n, p in model.named_parameters()], "lr_scale":1}]
         # params = [p for n, p in model.named_parameters() if p.require_grad]
         if self.args.fp16:

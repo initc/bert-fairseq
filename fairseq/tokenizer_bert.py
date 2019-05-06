@@ -209,17 +209,96 @@ class BertTokenizer(object):
 
 class BertNERDictionary(object):
     def __init__(self, dictionary_file):
-        self.label_dict = json.loads(open(dictionary_file).read())
-
+        self.label_index = json.loads(open(dictionary_file).read())
+        self.index_label = dict([(v,k) for k,v in self.label_index.items()])
 
     def __len__(self):
-        return len(self.label_dict)
+        return len(self.label_index)
 
     def pad(self):
-        return self.label_dict["PAD"]
+        return self.label_index["PAD"]
 
+    def other(self):
+        return self.label_index["O"]
 
-    
+    def info_acc(self, predict, target):
+        if not isinstance(predict, list):
+            predict = predict.tolist()
+        if not isinstance(target, list):
+            target = target.tolist()
+        p=0
+        t=0
+        c=0
+        for pe,te in zip(predict, target):
+            pe_s = self.read_entity(pe)
+            te_s = self.read_entity(te)
+            ce_s = pe_s&te_s
+            c += len(ce_s)
+            p += len(pe_s)
+            t += len(te_s)
+        return c, p, t
+
+    def read_entity(self, entitys):
+        entity_set = set()
+        pad = self.pad()
+        other = self.other()
+        pre = None
+
+        lens = len(entitys)
+        i = 0
+        while i< lens:
+
+            while i<lens:
+                if entitys[i]==pad or entitys[i]==other:
+                    i += 1
+                    continue
+                break
+            if i >= lens:
+                break
+
+            position = [None, None]
+            items = []
+            position[0] = i
+            position[1] = i
+
+            items.append(entitys[i])
+            i += 1
+            while i<lens:
+                if  self.is_medium(entitys[i]):
+                    items.append(entitys[i])
+                    position[1] = i
+                    i += 1
+                else:
+                    break
+            en = position
+            en.extend(items)
+            entity_set.add(tuple(en))
+        return entity_set
+
+    def is_begin(self, e):
+        label = self.index_label[e]
+        if label.split("-")[0]=="B":
+            return True
+        else:
+            return False
+
+    def is_medium(self, e):
+        label = self.index_label[e]
+        if label.split("-")[0]=="I":
+            return True
+        else:
+            return False
+
+    def is_pair(self, index_a, index_b):
+        if index_b==self.pad() or index_b==self.other():
+            return False
+        label_a = self.index_label[index_a]
+        label_b = self.index_label[index_b]
+        if label_a.split("-")[1]==label_b.split("-")[1]:
+            return True
+        else:
+            return False
+
 
 class BasicTokenizer(object):
     """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
