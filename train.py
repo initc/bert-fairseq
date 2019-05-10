@@ -39,7 +39,7 @@ def main(args):
     task = tasks.setup_task(args)
 
     # Load dataset splits
-    load_dataset_splits(task, ['train', 'valid'])
+    load_dataset_splits(task, ['train', 'valid', 'test'])
 
     # Build model and criterion
     model = task.build_model(args)
@@ -96,7 +96,7 @@ def main(args):
         train(args, trainer, task, epoch_itr)
 
         if epoch_itr.epoch % args.validate_interval == 0:
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            valid_losses = validate(args, trainer, task, epoch_itr, [valid_subsets[0],'test'])
 
         # only use first validation loss to update the learning rate
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
@@ -255,6 +255,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
         stats["acc"] = correct_num/predict_num
         stats["recall"] = correct_num/target_num
         stats["F1"] = (2*stats["acc"]*stats["recall"])/(stats["recall"]+stats["acc"])
+        stats["acc_num"] = "{}-{}-{}".format(correct_num, predict_num, target_num)
         progress.print(stats)
 
         valid_losses.append(stats['valid_loss'])

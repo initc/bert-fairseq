@@ -258,13 +258,19 @@ class BertNERDictionary(object):
 
             position = [None, None]
             items = []
-            position[0] = i
-            position[1] = i
-
-            items.append(entitys[i])
-            i += 1
             while i<lens:
-                if  self.is_medium(entitys[i]):
+                if self.is_begin(entitys[i]):
+                    position[0] = i
+                    position[1] = i
+                    items.append(entitys[i])
+                    break
+                else:
+                    i += 1
+            i += 1
+            if len(items)==0:
+                break
+            while i<lens:
+                if self.is_medium(entitys[i]):
                     items.append(entitys[i])
                     position[1] = i
                     i += 1

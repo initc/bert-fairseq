@@ -35,19 +35,28 @@ class NERCrossEntropyCriterion(FairseqCriterion):
         loss = F.nll_loss(lprobs, target, size_average=False, ignore_index=self.padding_idx,
                           reduce=reduce)
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
-        max_args = net_output.argmax(-1)
-        target = model.get_targets(sample, net_output)
-        correct_num, predict_num, target_num = model.info_acc(max_args.cpu(), target.cpu())
-        logging_output = {
-            'loss': utils.item(loss.data) if reduce else loss.data,
-            'ntokens': sample['ntokens'],
-            'nsentences': sample['target'].size(0),
-            'sample_size': sample_size,
-            'correct': correct_num,
-            'predict': predict_num,
-            'target':target_num,
-            'training':model.training
-        }
+        if not model.training:
+            max_args = net_output.argmax(-1)
+            target = model.get_targets(sample, net_output)
+            correct_num, predict_num, target_num = model.info_acc(max_args.cpu(), target.cpu())
+            logging_output = {
+                'loss': utils.item(loss.data) if reduce else loss.data,
+                'ntokens': sample['ntokens'],
+                'nsentences': sample['target'].size(0),
+                'sample_size': sample_size,
+                'correct': correct_num,
+                'predict': predict_num,
+                'target':target_num,
+                'training':model.training
+            }
+        else:
+            logging_output = {
+                'loss': utils.item(loss.data) if reduce else loss.data,
+                'ntokens': sample['ntokens'],
+                'nsentences': sample['target'].size(0),
+                'sample_size': sample_size,
+                'training':model.training
+            }
         return loss, sample_size, logging_output
 
     def acc(self, predict, target):
