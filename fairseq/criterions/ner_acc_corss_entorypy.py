@@ -67,8 +67,6 @@ class NERCrossEntropyCriterion(FairseqCriterion):
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
-        global global_lens
-        global global_acc
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get('loss', 0) for log in logging_outputs)
         ntokens = sum(log.get('ntokens', 0) for log in logging_outputs)

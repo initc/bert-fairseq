@@ -29,6 +29,7 @@ class BertNERModel(BaseFairseqModel):
         return self.target_dictionary.info_acc(predict, target)
 
 
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -54,22 +55,17 @@ class NERModel(PreTrainedBertModel):
 
         self.tgt_dict = kwargs["tgt_dict"]
         self.bert = BertModel(config)
-        # self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, len(self.tgt_dict))
         self.apply(self.init_bert_weights)
 
 
     def forward(self, input_ids, token_type_ids, attention_mask):
-        # bsz, t= input_ids.size()
-        # input_ids = input_ids.view(bsz*clfs, t)
-        # token_type_ids = token_type_ids.view(bsz*clfs, t)
-        # attention_mask = attention_mask.view(bsz*clfs, t)
 
         encoder_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-        # pooled_output = self.dropout(pooled_output)
+        encoder_output = self.dropout(encoder_output)
         logits = self.classifier(encoder_output[:,1:])
 
-        # clf_score = logits.view(bsz)
 
         return logits
 

@@ -11,7 +11,6 @@ import torch.optim
 
 from . import FairseqOptimizer, register_optimizer
 
-
 @register_optimizer('fix_adam')
 class FixFairseqAdam(FairseqOptimizer):
     def __init__(self, args, params):

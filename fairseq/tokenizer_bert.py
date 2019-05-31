@@ -230,6 +230,10 @@ class BertNERDictionary(object):
         t=0
         c=0
         for pe,te in zip(predict, target):
+
+            for i,e in enumerate(te):
+                if e==self.pad():
+                    pe[i]=self.pad()
             pe_s = self.read_entity(pe)
             te_s = self.read_entity(te)
             ce_s = pe_s&te_s
@@ -270,7 +274,7 @@ class BertNERDictionary(object):
             if len(items)==0:
                 break
             while i<lens:
-                if self.is_medium(entitys[i]):
+                if self.is_pair(items[0], entitys[i]):
                     items.append(entitys[i])
                     position[1] = i
                     i += 1
