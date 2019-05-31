@@ -2,9 +2,9 @@ Tutorial: Simple LSTM
 =====================
 
 In this tutorial we will extend fairseq by adding a new
-:class:`~fairseq.models.FairseqModel` that encodes a source sentence with an
-LSTM and then passes the final hidden state to a second LSTM that decodes the
-target sentence (without attention).
+:class:`~fairseq.models.FairseqEncoderDecoderModel` that encodes a source
+sentence with an LSTM and then passes the final hidden state to a second LSTM
+that decodes the target sentence (without attention).
 
 This tutorial covers:
 
@@ -233,18 +233,18 @@ Once the model is registered we'll be able to use it with the existing
 All registered models must implement the
 :class:`~fairseq.models.BaseFairseqModel` interface. For sequence-to-sequence
 models (i.e., any model with a single Encoder and Decoder), we can instead
-implement the :class:`~fairseq.models.FairseqModel` interface.
+implement the :class:`~fairseq.models.FairseqEncoderDecoderModel` interface.
 
 Create a small wrapper class in the same file and register it in fairseq with
 the name ``'simple_lstm'``::
 
-  from fairseq.models import FairseqModel, register_model
+  from fairseq.models import FairseqEncoderDecoderModel, register_model
 
   # Note: the register_model "decorator" should immediately precede the
   # definition of the Model class.
 
   @register_model('simple_lstm')
-  class SimpleLSTMModel(FairseqModel):
+  class SimpleLSTMModel(FairseqEncoderDecoderModel):
 
       @staticmethod
       def add_args(parser):
@@ -308,7 +308,7 @@ the name ``'simple_lstm'``::
       # We could override the ``forward()`` if we wanted more control over how
       # the encoder and decoder interact, but it's not necessary for this
       # tutorial since we can inherit the default implementation provided by
-      # the FairseqModel base class, which looks like:
+      # the FairseqEncoderDecoderModel base class, which looks like:
       #
       # def forward(self, src_tokens, src_lengths, prev_output_tokens):
       #     encoder_out = self.encoder(src_tokens, src_lengths)
@@ -341,7 +341,7 @@ function decorator. Thereafter this named architecture can be used with the
 3. Training the Model
 ---------------------
 
-Now we're ready to train the model. We can use the existing :ref:`train.py`
+Now we're ready to train the model. We can use the existing :ref:`fairseq-train`
 command-line tool for this, making sure to specify our new Model architecture
 (``--arch tutorial_simple_lstm``).
 
@@ -352,7 +352,7 @@ command-line tool for this, making sure to specify our new Model architecture
 
 .. code-block:: console
 
-  > python train.py data-bin/iwslt14.tokenized.de-en \
+  > fairseq-train data-bin/iwslt14.tokenized.de-en \
     --arch tutorial_simple_lstm \
     --encoder-dropout 0.2 --decoder-dropout 0.2 \
     --optimizer adam --lr 0.005 --lr-shrink 0.5 \
@@ -362,12 +362,12 @@ command-line tool for this, making sure to specify our new Model architecture
   | epoch 052 | valid on 'valid' subset | valid_loss 4.74989 | valid_ppl 26.91 | num_updates 20852 | best 4.74954
 
 The model files should appear in the :file:`checkpoints/` directory. While this
-model architecture is not very good, we can use the :ref:`generate.py` script to
+model architecture is not very good, we can use the :ref:`fairseq-generate` script to
 generate translations and compute our BLEU score over the test set:
 
 .. code-block:: console
 
-  > python generate.py data-bin/iwslt14.tokenized.de-en \
+  > fairseq-generate data-bin/iwslt14.tokenized.de-en \
     --path checkpoints/checkpoint_best.pt \
     --beam 5 \
     --remove-bpe
@@ -498,7 +498,7 @@ Finally, we can rerun generation and observe the speedup:
 
   # Before
 
-  > python generate.py data-bin/iwslt14.tokenized.de-en \
+  > fairseq-generate data-bin/iwslt14.tokenized.de-en \
     --path checkpoints/checkpoint_best.pt \
     --beam 5 \
     --remove-bpe
@@ -508,7 +508,7 @@ Finally, we can rerun generation and observe the speedup:
 
   # After
 
-  > python generate.py data-bin/iwslt14.tokenized.de-en \
+  > fairseq-generate data-bin/iwslt14.tokenized.de-en \
     --path checkpoints/checkpoint_best.pt \
     --beam 5 \
     --remove-bpe

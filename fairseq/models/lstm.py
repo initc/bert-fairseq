@@ -10,15 +10,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from fairseq import options, utils
-from fairseq.modules import AdaptiveSoftmax
-from . import (
-    FairseqEncoder, FairseqIncrementalDecoder, FairseqModel, register_model,
+from fairseq.models import (
+    FairseqEncoder,
+    FairseqIncrementalDecoder,
+    FairseqEncoderDecoderModel,
+    register_model,
     register_model_architecture,
 )
+from fairseq.modules import AdaptiveSoftmax
 
 
 @register_model('lstm')
-class LSTMModel(FairseqModel):
+class LSTMModel(FairseqEncoderDecoderModel):
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
 
@@ -32,6 +35,8 @@ class LSTMModel(FairseqModel):
                             help='encoder embedding dimension')
         parser.add_argument('--encoder-embed-path', type=str, metavar='STR',
                             help='path to pre-trained encoder embedding')
+        parser.add_argument('--encoder-freeze-embed', action='store_true',
+                            help='freeze encoder embeddings')
         parser.add_argument('--encoder-hidden-size', type=int, metavar='N',
                             help='encoder hidden size')
         parser.add_argument('--encoder-layers', type=int, metavar='N',
@@ -42,6 +47,8 @@ class LSTMModel(FairseqModel):
                             help='decoder embedding dimension')
         parser.add_argument('--decoder-embed-path', type=str, metavar='STR',
                             help='path to pre-trained decoder embedding')
+        parser.add_argument('--decoder-freeze-embed', action='store_true',
+                            help='freeze decoder embeddings')
         parser.add_argument('--decoder-hidden-size', type=int, metavar='N',
                             help='decoder hidden size')
         parser.add_argument('--decoder-layers', type=int, metavar='N',
@@ -53,6 +60,12 @@ class LSTMModel(FairseqModel):
         parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
                             help='comma separated list of adaptive softmax cutoff points. '
                                  'Must be used with adaptive_loss criterion')
+        parser.add_argument('--share-decoder-input-output-embed', default=False,
+                            action='store_true',
+                            help='share decoder input and output embeddings')
+        parser.add_argument('--share-all-embeddings', default=False, action='store_true',
+                            help='share encoder, decoder and output embeddings'
+                                 ' (requires shared dictionary and embed dim)')
 
         # Granular dropout settings (if not specified these default to --dropout)
         parser.add_argument('--encoder-dropout-in', type=float, metavar='D',
@@ -63,12 +76,6 @@ class LSTMModel(FairseqModel):
                             help='dropout probability for decoder input embedding')
         parser.add_argument('--decoder-dropout-out', type=float, metavar='D',
                             help='dropout probability for decoder output')
-        parser.add_argument('--share-decoder-input-output-embed', default=False,
-                            action='store_true',
-                            help='share decoder input and output embeddings')
-        parser.add_argument('--share-all-embeddings', default=False, action='store_true',
-                            help='share encoder, decoder and output embeddings'
-                                 ' (requires shared dictionary and embed dim)')
         # fmt: on
 
     @classmethod
@@ -130,6 +137,11 @@ class LSTMModel(FairseqModel):
                 '--decoder-embed-dim to match --decoder-out-embed-dim'
             )
 
+        if args.encoder_freeze_embed:
+            pretrained_encoder_embed.weight.requires_grad = False
+        if args.decoder_freeze_embed:
+            pretrained_decoder_embed.weight.requires_grad = False
+
         encoder = LSTMEncoder(
             dictionary=task.source_dictionary,
             embed_dim=args.encoder_embed_dim,
@@ -149,7 +161,6 @@ class LSTMModel(FairseqModel):
             dropout_in=args.decoder_dropout_in,
             dropout_out=args.decoder_dropout_out,
             attention=options.eval_bool(args.decoder_attention),
-            encoder_embed_dim=args.encoder_embed_dim,
             encoder_output_units=encoder.output_units,
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
@@ -222,8 +233,8 @@ class LSTMEncoder(FairseqEncoder):
             state_size = 2 * self.num_layers, bsz, self.hidden_size
         else:
             state_size = self.num_layers, bsz, self.hidden_size
-        h0 = x.data.new(*state_size).zero_()
-        c0 = x.data.new(*state_size).zero_()
+        h0 = x.new_zeros(*state_size)
+        c0 = x.new_zeros(*state_size)
         packed_outs, (final_hiddens, final_cells) = self.lstm(packed_x, (h0, c0))
 
         # unpack outputs and apply dropout
@@ -263,11 +274,11 @@ class LSTMEncoder(FairseqEncoder):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, input_embed_dim, output_embed_dim):
+    def __init__(self, input_embed_dim, source_embed_dim, output_embed_dim, bias=False):
         super().__init__()
 
-        self.input_proj = Linear(input_embed_dim, output_embed_dim, bias=False)
-        self.output_proj = Linear(input_embed_dim + output_embed_dim, output_embed_dim, bias=False)
+        self.input_proj = Linear(input_embed_dim, source_embed_dim, bias=bias)
+        self.output_proj = Linear(input_embed_dim + source_embed_dim, output_embed_dim, bias=bias)
 
     def forward(self, input, source_hids, encoder_padding_mask):
         # input: bsz x input_embed_dim
@@ -291,7 +302,7 @@ class AttentionLayer(nn.Module):
         # sum weighted sources
         x = (attn_scores.unsqueeze(2) * source_hids).sum(dim=0)
 
-        x = F.tanh(self.output_proj(torch.cat((x, input), dim=1)))
+        x = torch.tanh(self.output_proj(torch.cat((x, input), dim=1)))
         return x, attn_scores
 
 
@@ -300,7 +311,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
     def __init__(
         self, dictionary, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, attention=True,
-        encoder_embed_dim=512, encoder_output_units=512, pretrained_embed=None,
+        encoder_output_units=512, pretrained_embed=None,
         share_input_output_embed=False, adaptive_softmax_cutoff=None,
     ):
         super().__init__(dictionary)
@@ -319,18 +330,23 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             self.embed_tokens = pretrained_embed
 
         self.encoder_output_units = encoder_output_units
-        assert encoder_output_units == hidden_size, \
-            'encoder_output_units ({}) != hidden_size ({})'.format(encoder_output_units, hidden_size)
-        # TODO another Linear layer if not equal
-
+        if encoder_output_units != hidden_size:
+            self.encoder_hidden_proj = Linear(encoder_output_units, hidden_size)
+            self.encoder_cell_proj = Linear(encoder_output_units, hidden_size)
+        else:
+            self.encoder_hidden_proj = self.encoder_cell_proj = None
         self.layers = nn.ModuleList([
             LSTMCell(
-                input_size=encoder_output_units + embed_dim if layer == 0 else hidden_size,
+                input_size=hidden_size + embed_dim if layer == 0 else hidden_size,
                 hidden_size=hidden_size,
             )
             for layer in range(num_layers)
         ])
-        self.attention = AttentionLayer(encoder_output_units, hidden_size) if attention else None
+        if attention:
+            # TODO make bias configurable
+            self.attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
+        else:
+            self.attention = None
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
@@ -340,16 +356,16 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
-    def forward(self, prev_output_tokens, encoder_out_dict, incremental_state=None):
-        encoder_out = encoder_out_dict['encoder_out']
-        encoder_padding_mask = encoder_out_dict['encoder_padding_mask']
+    def forward(self, prev_output_tokens, encoder_out, incremental_state=None):
+        encoder_padding_mask = encoder_out['encoder_padding_mask']
+        encoder_out = encoder_out['encoder_out']
 
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
         bsz, seqlen = prev_output_tokens.size()
 
         # get outputs from encoder
-        encoder_outs, _, _ = encoder_out[:3]
+        encoder_outs, encoder_hiddens, encoder_cells = encoder_out[:3]
         srclen = encoder_outs.size(0)
 
         # embed tokens
@@ -364,13 +380,15 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         if cached_state is not None:
             prev_hiddens, prev_cells, input_feed = cached_state
         else:
-            _, encoder_hiddens, encoder_cells = encoder_out[:3]
             num_layers = len(self.layers)
             prev_hiddens = [encoder_hiddens[i] for i in range(num_layers)]
             prev_cells = [encoder_cells[i] for i in range(num_layers)]
-            input_feed = x.data.new(bsz, self.encoder_output_units).zero_()
+            if self.encoder_hidden_proj is not None:
+                prev_hiddens = [self.encoder_hidden_proj(x) for x in prev_hiddens]
+                prev_cells = [self.encoder_cell_proj(x) for x in prev_cells]
+            input_feed = x.new_zeros(bsz, self.hidden_size)
 
-        attn_scores = x.data.new(srclen, seqlen, bsz).zero_()
+        attn_scores = x.new_zeros(srclen, seqlen, bsz)
         outs = []
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
@@ -402,7 +420,9 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 
         # cache previous states (no-op except during incremental generation)
         utils.set_incremental_state(
-            self, incremental_state, 'cached_state', (prev_hiddens, prev_cells, input_feed))
+            self, incremental_state, 'cached_state',
+            (prev_hiddens, prev_cells, input_feed),
+        )
 
         # collect outputs across time steps
         x = torch.cat(outs, dim=0).view(seqlen, bsz, self.hidden_size)
@@ -486,6 +506,7 @@ def base_architecture(args):
     args.dropout = getattr(args, 'dropout', 0.1)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
     args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
+    args.encoder_freeze_embed = getattr(args, 'encoder_freeze_embed', False)
     args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_embed_dim)
     args.encoder_layers = getattr(args, 'encoder_layers', 1)
     args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', False)
@@ -493,6 +514,7 @@ def base_architecture(args):
     args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', args.dropout)
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
     args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
+    args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
     args.decoder_layers = getattr(args, 'decoder_layers', 1)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 512)

@@ -6,12 +6,43 @@
 # can be found in the PATENTS file in the same directory.
 
 import os
+import shutil
 import struct
 
 import numpy as np
 import torch
 
-from fairseq.tokenizer import Tokenizer
+from . import FairseqDataset
+
+
+def make_builder(out_file, impl):
+    if impl == 'mmap':
+        return MMapIndexedDatasetBuilder(out_file)
+    else:
+        return IndexedDatasetBuilder(out_file)
+
+
+def make_dataset(path, impl, fix_lua_indexing=False, dictionary=None):
+    if impl == 'raw' and IndexedRawTextDataset.exists(path):
+        assert dictionary is not None
+        return IndexedRawTextDataset(path, dictionary)
+    elif impl == 'lazy' and IndexedDataset.exists(path):
+        return IndexedDataset(path, fix_lua_indexing=fix_lua_indexing)
+    elif impl == 'cached' and IndexedDataset.exists(path):
+        return IndexedCachedDataset(path, fix_lua_indexing=fix_lua_indexing)
+    elif impl == 'mmap' and MMapIndexedDataset.exists(path):
+        return MMapIndexedDataset(path)
+
+    return None
+
+
+def dataset_exists(path, impl):
+    if impl == 'raw':
+        return IndexedRawTextDataset.exists(path)
+    elif impl == 'mmap':
+        return MMapIndexedDataset.exists(path)
+    else:
+        return IndexedDataset.exists(path)
 
 
 def read_longs(f, n):
@@ -39,6 +70,7 @@ def code(dtype):
     for k in dtypes.keys():
         if dtypes[k] == dtype:
             return k
+    raise ValueError(dtype)
 
 
 def index_file_path(prefix_path):
@@ -49,34 +81,37 @@ def data_file_path(prefix_path):
     return prefix_path + '.bin'
 
 
-class IndexedDataset(torch.utils.data.Dataset):
+class IndexedDataset(FairseqDataset):
     """Loader for TorchNet IndexedDataset"""
 
     def __init__(self, path, fix_lua_indexing=False):
         super().__init__()
-        self.fix_lua_indexing = fix_lua_indexing
-        self.read_index(path)
-        self.data_file = None
         self.path = path
+        self.fix_lua_indexing = fix_lua_indexing
+        self.data_file = None
+        self.read_index(path)
 
     def read_index(self, path):
         with open(index_file_path(path), 'rb') as f:
             magic = f.read(8)
-            assert magic == b'TNTIDX\x00\x00'
+            assert magic == b'TNTIDX\x00\x00', (
+                'Index file doesn\'t match expected format. '
+                'Make sure that --dataset-impl is configured properly.'
+            )
             version = f.read(8)
             assert struct.unpack('<Q', version) == (1,)
             code, self.element_size = struct.unpack('<QQ', f.read(16))
             self.dtype = dtypes[code]
-            self.size, self.s = struct.unpack('<QQ', f.read(16))
-            self.dim_offsets = read_longs(f, self.size + 1)
-            self.data_offsets = read_longs(f, self.size + 1)
+            self._len, self.s = struct.unpack('<QQ', f.read(16))
+            self.dim_offsets = read_longs(f, self._len + 1)
+            self.data_offsets = read_longs(f, self._len + 1)
             self.sizes = read_longs(f, self.s)
 
     def read_data(self, path):
         self.data_file = open(data_file_path(path), 'rb', buffering=0)
 
     def check_index(self, i):
-        if i < 0 or i >= self.size:
+        if i < 0 or i >= self._len:
             raise IndexError('index out of range')
 
     def __del__(self):
@@ -87,7 +122,7 @@ class IndexedDataset(torch.utils.data.Dataset):
         if not self.data_file:
             self.read_data(self.path)
         self.check_index(i)
-        tensor_size = int(self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]])
+        tensor_size = self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
         a = np.empty(tensor_size, dtype=self.dtype)
         self.data_file.seek(self.data_offsets[i] * self.element_size)
         self.data_file.readinto(a)
@@ -97,13 +132,18 @@ class IndexedDataset(torch.utils.data.Dataset):
         return item
 
     def __len__(self):
-        return self.size
+        return self._len
+
+    def num_tokens(self, index):
+        return self.sizes[index]
+
+    def size(self, index):
+        return self.sizes[index]
 
     @staticmethod
     def exists(path):
         return (
-            os.path.exists(index_file_path(path)) and
-            os.path.exists(data_file_path(path))
+            os.path.exists(index_file_path(path)) and os.path.exists(data_file_path(path))
         )
 
     @property
@@ -137,24 +177,28 @@ class IndexedCachedDataset(IndexedDataset):
         for i in indices:
             self.cache_index[i] = ptx
             size = self.data_offsets[i + 1] - self.data_offsets[i]
-            a = self.cache[ptx : ptx + size]
+            a = self.cache[ptx: ptx + size]
             self.data_file.seek(self.data_offsets[i] * self.element_size)
             self.data_file.readinto(a)
             ptx += size
+        if self.data_file:
+            # close and delete data file after prefetch so we can pickle
+            self.data_file.close()
+            self.data_file = None
 
     def __getitem__(self, i):
         self.check_index(i)
         tensor_size = self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
         a = np.empty(tensor_size, dtype=self.dtype)
         ptx = self.cache_index[i]
-        np.copyto(a, self.cache[ptx : ptx + a.size])
+        np.copyto(a, self.cache[ptx: ptx + a.size])
         item = torch.from_numpy(a).long()
         if self.fix_lua_indexing:
             item -= 1  # subtract 1 for 0-based indexing
         return item
 
 
-class IndexedRawTextDataset(torch.utils.data.Dataset):
+class IndexedRawTextDataset(FairseqDataset):
     """Takes a text file as input and binarizes it in memory at instantiation.
     Original lines are also kept in memory"""
 
@@ -168,11 +212,11 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
         self.size = len(self.tokens_list)
 
     def read_data(self, path, dictionary):
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 self.lines.append(line.strip('\n'))
-                tokens = Tokenizer.tokenize(
-                    line, dictionary, add_if_not_exist=False,
+                tokens = dictionary.encode_line(
+                    line, add_if_not_exist=False,
                     append_eos=self.append_eos, reverse_order=self.reverse_order,
                 ).long()
                 self.tokens_list.append(tokens)
@@ -196,6 +240,12 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.size
+
+    def num_tokens(self, index):
+        return self.sizes[index]
+
+    def size(self, index):
+        return self.sizes[index]
 
     @staticmethod
     def exists(path):
@@ -279,3 +329,170 @@ class BertIndexedCachedDataset(IndexedCachedDataset):
         if self.fix_lua_indexing:
             item -= 1  # subtract 1 for 0-based indexing
         return item
+
+def _warmup_mmap_file(path):
+    with open(path, 'rb') as stream:
+        while stream.read(100 * 1024 * 1024):
+            pass
+
+
+class MMapIndexedDataset(torch.utils.data.Dataset):
+    class Index(object):
+        _HDR_MAGIC = b'MMIDIDX\x00\x00'
+
+        @classmethod
+        def writer(cls, path, dtype):
+            class _Writer(object):
+                def __enter__(self):
+                    self._file = open(path, 'wb')
+
+                    self._file.write(cls._HDR_MAGIC)
+                    self._file.write(struct.pack('<Q', 1))
+                    self._file.write(struct.pack('<B', code(dtype)))
+
+                    return self
+
+                @staticmethod
+                def _get_pointers(sizes):
+                    dtype_size = dtype().itemsize
+                    address = 0
+                    pointers = []
+
+                    for size in sizes:
+                        pointers.append(address)
+                        address += size * dtype_size
+
+                    return pointers
+
+                def write(self, sizes):
+                    pointers = self._get_pointers(sizes)
+
+                    self._file.write(struct.pack('<Q', len(sizes)))
+
+                    sizes = np.array(sizes, dtype=np.int32)
+                    self._file.write(sizes.tobytes(order='C'))
+                    del sizes
+
+                    pointers = np.array(pointers, dtype=np.int64)
+                    self._file.write(pointers.tobytes(order='C'))
+                    del pointers
+
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    self._file.close()
+
+            return _Writer()
+
+        def __init__(self, path):
+            with open(path, 'rb') as stream:
+                magic_test = stream.read(9)
+                assert self._HDR_MAGIC == magic_test, (
+                    'Index file doesn\'t match expected format. '
+                    'Make sure that --dataset-impl is configured properly.'
+                )
+                version = struct.unpack('<Q', stream.read(8))
+                assert (1,) == version
+
+                dtype_code, = struct.unpack('<B', stream.read(1))
+                self._dtype = dtypes[dtype_code]
+                self._dtype_size = self._dtype().itemsize
+
+                self._len = struct.unpack('<Q', stream.read(8))[0]
+                offset = stream.tell()
+
+            _warmup_mmap_file(path)
+
+            self._bin_buffer = memoryview(np.memmap(path, mode='r', order='C'))
+            self._sizes = np.frombuffer(self._bin_buffer, dtype=np.int32, count=self._len, offset=offset)
+            self._pointers = np.frombuffer(self._bin_buffer, dtype=np.int64, count=self._len,
+                                           offset=offset + self._sizes.nbytes)
+
+        @property
+        def dtype(self):
+            return self._dtype
+
+        @property
+        def sizes(self):
+            return self._sizes
+
+        def __getitem__(self, i):
+            return self._pointers[i], self._sizes[i]
+
+        def __len__(self):
+            return self._len
+
+    def __init__(self, path):
+        super().__init__()
+
+        self._path = None
+        self._index = None
+        self._bin_buffer = None
+
+        self._do_init(path)
+
+    def __getstate__(self):
+        return self._path
+
+    def __setstate__(self, state):
+        self._do_init(state)
+
+    def _do_init(self, path):
+        self._path = path
+        self._index = self.Index(index_file_path(self._path))
+
+        _warmup_mmap_file(data_file_path(self._path))
+        self._bin_buffer = memoryview(np.memmap(data_file_path(self._path), mode='r', order='C'))
+
+    def __len__(self):
+        return len(self._index)
+
+    def __getitem__(self, i):
+        ptr, size = self._index[i]
+        tensor = torch.from_numpy(np.frombuffer(self._bin_buffer, dtype=self._index.dtype, count=size, offset=ptr))
+        if tensor.dtype == torch.int64:
+            return tensor
+        else:
+            return tensor.long()
+
+    @property
+    def sizes(self):
+        return self._index.sizes
+
+    @property
+    def supports_prefetch(self):
+        return False
+
+    @staticmethod
+    def exists(path):
+        return (
+            os.path.exists(index_file_path(path)) and os.path.exists(data_file_path(path))
+        )
+
+
+class MMapIndexedDatasetBuilder(object):
+    def __init__(self, out_file, dtype=np.int64):
+        self._data_file = open(out_file, 'wb')
+        self._dtype = dtype
+        self._sizes = []
+
+    def add_item(self, tensor):
+        np_array = np.array(tensor.numpy(), dtype=self._dtype)
+        self._data_file.write(np_array.tobytes(order='C'))
+        self._sizes.append(np_array.size)
+
+    def merge_file_(self, another_file):
+        # Concatenate index
+        index = MMapIndexedDataset.Index(index_file_path(another_file))
+        assert index.dtype == self._dtype
+
+        for size in index.sizes:
+            self._sizes.append(size)
+
+        # Concatenate data
+        with open(data_file_path(another_file), 'rb') as f:
+            shutil.copyfileobj(f, self._data_file)
+
+    def finalize(self, index_file):
+        self._data_file.close()
+
+        with MMapIndexedDataset.Index.writer(index_file, self._dtype) as index:
+            index.write(self._sizes)

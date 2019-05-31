@@ -13,7 +13,7 @@ import argparse
 import os
 import sys
 
-from fairseq import bleu, tokenizer
+from fairseq import bleu
 from fairseq.data import dictionary
 
 
@@ -26,6 +26,10 @@ def get_parser():
                         type=int, help='consider ngrams up to this order')
     parser.add_argument('--ignore-case', action='store_true',
                         help='case-insensitive scoring')
+    parser.add_argument('--sacrebleu', action='store_true',
+                        help='score with sacrebleu')
+    parser.add_argument('--sentence-bleu', action='store_true',
+                        help='report sentence-level BLEUs (i.e., with +1 smoothing)')
     # fmt: on
     return parser
 
@@ -49,14 +53,31 @@ def main():
             else:
                 yield line
 
-    def score(fdsys):
-        with open(args.ref) as fdref:
-            scorer = bleu.Scorer(dict.pad(), dict.eos(), dict.unk())
-            for sys_tok, ref_tok in zip(readlines(fdsys), readlines(fdref)):
-                sys_tok = tokenizer.Tokenizer.tokenize(sys_tok, dict)
-                ref_tok = tokenizer.Tokenizer.tokenize(ref_tok, dict)
-                scorer.add(ref_tok, sys_tok)
-            print(scorer.result_string(args.order))
+    if args.sacrebleu:
+        import sacrebleu
+
+        def score(fdsys):
+            with open(args.ref) as fdref:
+                print(sacrebleu.corpus_bleu(fdsys, [fdref]))
+    elif args.sentence_bleu:
+        def score(fdsys):
+            with open(args.ref) as fdref:
+                scorer = bleu.Scorer(dict.pad(), dict.eos(), dict.unk())
+                for i, (sys_tok, ref_tok) in enumerate(zip(readlines(fdsys), readlines(fdref))):
+                    scorer.reset(one_init=True)
+                    sys_tok = dict.encode_line(sys_tok)
+                    ref_tok = dict.encode_line(ref_tok)
+                    scorer.add(ref_tok, sys_tok)
+                    print(i, scorer.result_string(args.order))
+    else:
+        def score(fdsys):
+            with open(args.ref) as fdref:
+                scorer = bleu.Scorer(dict.pad(), dict.eos(), dict.unk())
+                for sys_tok, ref_tok in zip(readlines(fdsys), readlines(fdref)):
+                    sys_tok = dict.encode_line(sys_tok)
+                    ref_tok = dict.encode_line(ref_tok)
+                    scorer.add(ref_tok, sys_tok)
+                print(scorer.result_string(args.order))
 
     if args.sys == '-':
         score(sys.stdin)

@@ -6,12 +6,11 @@
 # can be found in the PATENTS file in the same directory.
 
 import inspect
+
 from torch.nn import parallel
 
-from fairseq.distributed_utils import c10d_status
 from fairseq.legacy_distributed_data_parallel import LegacyDistributedDataParallel
-
-from . import BaseFairseqModel
+from fairseq.models import BaseFairseqModel
 
 
 def DistributedFairseqModel(args, model):
@@ -27,19 +26,10 @@ def DistributedFairseqModel(args, model):
         args (argparse.Namespace): fairseq args
         model (BaseFairseqModel): model to wrap
     """
-
     # determine which DDP class to extend
     assert isinstance(model, BaseFairseqModel)
     if args.ddp_backend == 'c10d':
-        if c10d_status.is_default:
-            ddp_class = parallel.DistributedDataParallel
-        elif c10d_status.has_c10d:
-            ddp_class = parallel._DistributedDataParallelC10d
-        else:
-            raise Exception(
-                'Can\'t find c10d version of DistributedDataParallel. '
-                'Please update PyTorch.'
-            )
+        ddp_class = parallel.DistributedDataParallel
         init_kwargs = dict(
             module=model,
             device_ids=[args.device_id],
@@ -47,10 +37,11 @@ def DistributedFairseqModel(args, model):
             broadcast_buffers=False,
             bucket_cap_mb=args.bucket_cap_mb,
         )
-        # Maintain backward compatibility for 0.4 or earlier
+        # Maintain backward compatibility
         if 'check_reduction' in inspect.getargspec(ddp_class)[0]:
             init_kwargs['check_reduction'] = True
-
+        if 'find_unused_parameters' in inspect.getargspec(ddp_class)[0]:
+            init_kwargs['find_unused_parameters'] = args.find_unused_parameters
     elif args.ddp_backend == 'no_c10d':
         ddp_class = LegacyDistributedDataParallel
         init_kwargs = dict(

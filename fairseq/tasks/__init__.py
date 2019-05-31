@@ -11,13 +11,12 @@ import os
 
 from .fairseq_task import FairseqTask
 
-
 TASK_REGISTRY = {}
 TASK_CLASS_NAMES = set()
 
 
-def setup_task(args):
-    return TASK_REGISTRY[args.task].setup_task(args)
+def setup_task(args, **kwargs):
+    return TASK_REGISTRY[args.task].setup_task(args, **kwargs)
 
 
 def register_task(name):
@@ -73,3 +72,7 @@ for file in os.listdir(os.path.dirname(__file__)):
             group_args = parser.add_argument_group('Additional command-line arguments')
             TASK_REGISTRY[task_name].add_args(group_args)
             globals()[task_name + '_parser'] = parser
+
+
+def get_task(name):
+    return TASK_REGISTRY[name]

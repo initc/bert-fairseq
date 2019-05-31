@@ -21,15 +21,11 @@ class FairseqDataset(torch.utils.data.Dataset):
         """Merge a list of samples to form a mini-batch.
 
         Args:
-            samples (List[int]): sample indices to collate
+            samples (List[dict]): samples to collate
 
         Returns:
             dict: a mini-batch suitable for forwarding with a Model
         """
-        raise NotImplementedError
-
-    def get_dummy_batch(self, num_tokens, max_positions):
-        """Return a dummy batch with a given number of tokens."""
         raise NotImplementedError
 
     def num_tokens(self, index):

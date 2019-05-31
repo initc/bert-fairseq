@@ -4,8 +4,6 @@
 # This source code is licensed under the license found in the LICENSE file in
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
-#
-
 """
 Use this script in order to build symmetric alignments for your translation
 dataset.
@@ -59,8 +57,8 @@ def main():
 
     # create joined file
     joined_file = os.path.join(args.output_dir, 'text.joined')
-    with open(args.source_file, 'r') as src, open(args.target_file, 'r') as tgt:
-        with open(joined_file, 'w') as joined:
+    with open(args.source_file, 'r', encoding='utf-8') as src, open(args.target_file, 'r', encoding='utf-8') as tgt:
+        with open(joined_file, 'w', encoding='utf-8') as joined:
             for s, t in zip_longest(src, tgt):
                 print('{} ||| {}'.format(s.strip(), t.strip()), file=joined)
 
