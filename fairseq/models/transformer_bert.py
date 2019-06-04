@@ -5,31 +5,18 @@ import torch
 from . import BaseFairseqModel, register_model, register_model_architecture
 from fairseq.modules.multi_pointer_modeling import TransformerDecoder, DecoderAttention, Feedforward
 from fairseq.modules.layer_norm import LayerNorm
-# import pdb
+import pdb
 
-@register_model('bert_transformer')
-class BertTransformerModel(BaseFairseqModel):
-    """
-    Transformer model from `"Attention Is All You Need" (Vaswani, et al, 2017)
-    <https://arxiv.org/abs/1706.03762>`_.
+@register_model('transformer_bert')
+class TransformerBertModel(BaseFairseqModel):
 
-    Args:
-        encoder (TransformerEncoder): the encoder
-        decoder (TransformerDecoder): the decoder
-
-    The Transformer model provides the following named architectures and
-    command-line arguments:
-
-    .. argparse::
-        :ref: fairseq.models.transformer_parser
-        :prog:
-    """
-
-    def __init__(self, args, encoder, decoder):
+    def __init__(self, args, encoder, decoder, encoder_dict, decoder_dict):
         super().__init__()
         self.args = args
         self.encoder = encoder
         self.decoder = decoder
+        self.encoder_dict = encoder_dict
+        self.decoder_dict = decoder_dict
 
     def forward(self, input_ids, token_type_ids, attention_mask, position_ids, prev_output_tokens):
         encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
@@ -47,10 +34,7 @@ class BertTransformerModel(BaseFairseqModel):
         encoder_outs = self.encoder(input_ids, token_type_ids, attention_mask, position_ids)
         start_idx = prev_output_tokens[0][0]
         return encoder_outs, start_idx
-        # 
-        # decoder_out = self.decoder.greedy_decoder(encoder_outs, start_idx=start_idx, max_lens=max_lens)
-        # # max_tokens_generate
-        # return decoder_out
+ 
     def decoder_one_step(self, input_ids, encoder_outs, incremental_states, step, max_lens):
         return self.decoder.decoder_one_step(input_ids, encoder_outs, incremental_states, step, max_lens)
 
@@ -60,18 +44,13 @@ class BertTransformerModel(BaseFairseqModel):
     def add_args(parser):
         """Add model-specific arguments to the parser."""
         parser.add_argument('--pre-dir', type=str, help="where to load bert model")
-        parser.add_argument('--reduce-dim', default=-1, type=int, metavar='N',
-                            help='convert encoder hidden')
-        parser.add_argument('--decoder-layer', default=2, type=int, metavar='N',
-                            help='the number of decoder layer')
         parser.add_argument('--token-types', default=2, type=int, metavar='N',
                             help='the number of tokens number')
         parser.add_argument('--defined-position', action="store_true", default=False, 
                             help='user-defined position in embedding')
         parser.add_argument('--decoder-layers', type=int, metavar='N', default=2,
                             help='num decoder layers')
-        parser.add_argument('--share-decoder-input-output-embed', action='store_true', default=False,
-                            help='share decoder input and output embeddings')
+        parser.add_argument('--share-decoder-input-output-embed', action='store_true', default=False, help='share decoder input and output embeddings')
         parser.add_argument("--decoder-lr", default=3e-3, type=float, help="The initial learning rate for decoder layers")
         parser.add_argument("--decoder-lr-scale", default=100, type=float, help="The scale learning rate for decoder layers")
         parser.add_argument("--encoder-lr-scale", default=1, type=float, help="The initial learning rate for encoder layers")
@@ -85,13 +64,16 @@ class BertTransformerModel(BaseFairseqModel):
         # make sure all arguments are present in older models
         if not hasattr(args, "pre_dir"):
             args.pre_dir = args.tokenizer_dir
+        encoder_dict = task.encoder_dict
+        decoder_dict = task.decoder_dict
 
         encoder = BertTransformerEncoder.build_model(args.pre_dir, args=args)
-        decoder_embedding = build_decoder_embedding(encoder)
+        # decoder_embedding = build_decoder_embedding(encoder)
+
         init_encoder_token_type(encoder, token_nums=args.token_types)
-        decoder_dictionary = task.tokenizer
-        decoder = BertTransformerDecoder(args, encoder.config, decoder_dictionary, decoder_embedding)
-        return BertTransformerModel(args, encoder, decoder)
+
+        decoder = BertTransformerDecoder(args, encoder.config, decoder_dict)
+        return cls(args, encoder, decoder, encoder_dict, decoder_dict)
 
 class BertTransformerEncoder(PreTrainedBertModel):
 
@@ -103,16 +85,16 @@ class BertTransformerEncoder(PreTrainedBertModel):
         self.max_source_positions = args.max_source_positions
         self.bert = BertPreTrainedModel(config)
 
-        decoder_dim = config.hidden_size
-        self.reduce_dim = args.reduce_dim
-        if self.reduce_dim > 0:
-            decoder_dim = self.reduce_dim
-            # self.linear_answer = nn.Linear(config.hidden_size, decoder_dim)
-            self.linear_context = nn.Linear(config.hidden_size, decoder_dim)
-            # self.ln_answer = LayerNorm(decoder_dim)
-            self.ln_context = LayerNorm(decoder_dim)
-        args.decoder_dim = decoder_dim
-        args.hidden_size = config.hidden_size
+        # decoder_dim = config.hidden_size
+        # self.reduce_dim = args.reduce_dim
+        # if self.reduce_dim > 0:
+        #     decoder_dim = self.reduce_dim
+        #     # self.linear_answer = nn.Linear(config.hidden_size, decoder_dim)
+        #     self.linear_context = nn.Linear(config.hidden_size, decoder_dim)
+        #     # self.ln_answer = LayerNorm(decoder_dim)
+        #     self.ln_context = LayerNorm(decoder_dim)
+        # args.decoder_dim = decoder_dim
+        # args.hidden_size = config.hidden_size
 
         self.apply(self.init_bert_weights)
 
@@ -123,7 +105,7 @@ class BertTransformerEncoder(PreTrainedBertModel):
         all_encoder_layers= self.bert(input_ids, token_type_ids, attention_mask, position_ids)
 
         sequence_output = all_encoder_layers[-1]
-        sequence_output = self.ln_context(self.linear_context(sequence_output)) if self.reduce_dim>0 else sequence_output
+        # sequence_output = self.ln_context(self.linear_context(sequence_output)) if self.reduce_dim>0 else sequence_output
         return {"encoder_output":sequence_output, "encoder_mask":attention_mask, "input_ids":input_ids}
 
     def max_positions(self):
@@ -157,54 +139,60 @@ class BertTransformerEncoder(PreTrainedBertModel):
 
 class BertTransformerDecoder(nn.Module):
 
-    def __init__(self, args, config, dictionary, embedding_token):
+    def __init__(self, args, config, dictionary):
         super().__init__()
         self.args = args
         self.config = config
         self.dict = dictionary
-        self.embedding_token = embedding_token
-        decoder_dim = args.decoder_dim
-        hidden_size = args.hidden_size
-        if args.reduce_dim > 0:
-            self.linear_answer = nn.Linear(hidden_size, decoder_dim)
-            self.ln_answer = LayerNorm(decoder_dim)
 
-        self.attention_layer = TransformerDecoder(decoder_dim, self.args.decoder_head, decoder_dim*4, args.decoder_layers, 0.2)
-        self.pointer_layer = PointerDecoder(decoder_dim, decoder_dim, dropout=0.2)
+        hidden_size = config.hidden_size
+        # if args.reduce_dim > 0:
+        #     self.linear_answer = nn.Linear(hidden_size, decoder_dim)
+        #     self.ln_answer = LayerNorm(decoder_dim)
 
-        self.vocab_size = len(dictionary)
-        self.out = nn.Linear(decoder_dim, self.vocab_size)
+        self.attention_layer = TransformerDecoder(hidden_size, self.args.decoder_head, hidden_size*4, args.decoder_layers, 0.2)
+        # self.embed_drop = nn.dropout(0.2)
 
+        vocab_size = len(dictionary)
+        self.word_embedding = nn.Embedding(vocab_size, hidden_size)
+        self.position_embedding = self.position_embeddings = nn.Embedding(config.max_position_embeddings, hidden_size)
+
+        self.out = nn.Linear(hidden_size, vocab_size)
         self.apply(self.init_bert_weights)
 
         if args.share_decoder_input_output_embed:
-            if self.args.reduce_dim > 0:
-                self.project = nn.Linear(decoder_dim, hidden_size)
-            self.out.weight = embedding_token.word_embeddings.weight
+            # if self.args.reduce_dim > 0:
+            #     self.project = nn.Linear(decoder_dim, hidden_size)
+            self.out.weight = self.word_embedding.weight
 
-    def forward(self, prev_output_tokens, encoder_outs):
+    def forward(self, prev_output_tokens, encoder_outs, position_ids=None):
         encoder_out, encoder_mask, encoder_input_ids = encoder_outs["encoder_output"], encoder_outs["encoder_mask"], encoder_outs["input_ids"]
 
-        answer_mask = prev_output_tokens.data != self.dict.pad()
+        # answer_mask = prev_output_tokens.data != self.dict.pad()
         answer_padding = prev_output_tokens.data == self.dict.pad()
         encoder_out_padding = encoder_mask.data == self.dict.pad()
 
         # self.pointer_layer.applyMasks(encoder_out_padding)
+        if position_ids is None:
+            seq_length = prev_output_tokens.size(1)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=prev_output_tokens.device)
+            position_ids = position_ids.unsqueeze(0).expand_as(prev_output_tokens)
 
-        answer_embedding = self.embedding_token(prev_output_tokens)
-        answer_embedding = self.ln_answer(self.linear_answer(answer_embedding)) if self.args.reduce_dim>0 else answer_embedding
+        x = self.word_embedding(prev_output_tokens)+self.position_embedding(position_ids)
+        # x = self.embed_drop(x)
 
-        decoder_out = self.attention_layer(answer_embedding, encoder_out, context_padding=encoder_out_padding, answer_padding=answer_padding, positional_encodings=False)
+        # answer_embedding = self.ln_answer(self.linear_answer(answer_embedding)) if self.args.reduce_dim>0 else answer_embedding
 
-        decoder_out = self.pointer_layer(decoder_out, encoder_out, atten_mask=encoder_out_padding)
+        x = self.attention_layer(x, encoder_out, context_padding=encoder_out_padding, answer_padding=answer_padding, positional_encodings=False)
 
-        context_question_outputs, context_question_weight, vocab_pointer_switches = decoder_out
+        x = self.out(x)
+        # decoder_out = self.pointer_layer(decoder_out, encoder_out, atten_mask=encoder_out_padding)
 
-        probs = self.probs(self.out, context_question_outputs, vocab_pointer_switches, context_question_weight, encoder_input_ids)
-        return probs
-        # else:
-        #     return None, self.greedy(encoder_out, encoder_input_ids, answer_ids = prev_output_tokens)
+        # context_question_outputs, context_question_weight, vocab_pointer_switches = decoder_out
 
+        # probs = self.probs(self.out, context_question_outputs, vocab_pointer_switches, context_question_weight, encoder_input_ids)
+
+        return x
 
     def probs(self, generator, outputs, vocab_pointer_switches, context_question_weight, context_question_indices, oov_to_limited_idx=None):
 
@@ -359,9 +347,10 @@ class BertTransformerDecoder(nn.Module):
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
-
-        logits = net_output.float()
-        return torch.log(logits)
+        if log_probs:
+            return F.log_softmax(net_output, dim=-1)
+        else:
+            return F.softmax(net_output, dim=-1)
 
     def max_positions(self):
         """Maximum input length supported by the decoder."""
@@ -435,7 +424,7 @@ def init_encoder_token_type(encoder_model, token_nums=3):
 
 
     
-@register_model_architecture('bert_transformer', 'bert_transformer_base')
+@register_model_architecture('transformer_bert', 'transformer_bert')
 def caiyun_base_architecture(args):
     # args.AB_times = getattr(args, 'AB_times', 10)
     # decoder_head = args.decoder_head

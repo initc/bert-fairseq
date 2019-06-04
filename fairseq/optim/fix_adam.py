@@ -30,6 +30,8 @@ class FixFairseqAdam(FairseqOptimizer):
                             help='betas for Adam optimizer')
         parser.add_argument('--adam-eps', type=float, default=1e-8, metavar='D',
                             help='epsilon for Adam optimizer')
+        parser.add_argument('--weight-decay', '--wd', default=0.0, type=float, metavar='WD',
+                            help='weight decay')
 
     @property
     def optimizer_config(self):

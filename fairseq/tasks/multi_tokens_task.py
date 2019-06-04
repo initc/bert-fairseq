@@ -162,7 +162,7 @@ class MultiTokensTask(FairseqTask):
     def get_batch_iterator(
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
-        seed=1, num_shards=1, shard_id=0,num_workers=0,
+        seed=1, num_shards=1, shard_id=0,num_workers=0,epoch=0,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
@@ -212,6 +212,7 @@ class MultiTokensTask(FairseqTask):
             seed=seed,
             num_shards=num_shards,
             shard_id=shard_id,
+            epoch=epoch,
         )
 
     def batch_by_size(self, indices, size, max_tokens, num_tokens_fn):

@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from fairseq import utils
 
 from . import FairseqCriterion, register_criterion
-
+import pdb
 
 @register_criterion('cross_entropy')
 class CrossEntropyCriterion(FairseqCriterion):
@@ -39,6 +39,7 @@ class CrossEntropyCriterion(FairseqCriterion):
         return loss, sample_size, logging_output
 
     def compute_loss(self, model, net_output, sample, reduce=True):
+        # pdb.set_trace()
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = model.get_targets(sample, net_output).view(-1)

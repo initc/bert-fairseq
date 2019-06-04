@@ -47,10 +47,8 @@ def load_langpair_dataset(
             else:
                 raise FileNotFoundError('Dataset not found: {} ({})'.format(split, data_path))
 
-        src_datasets.append(indexed_dataset.make_dataset(prefix + src, impl=dataset_impl,
-                                                         fix_lua_indexing=True, dictionary=src_dict))
-        tgt_datasets.append(indexed_dataset.make_dataset(prefix + tgt, impl=dataset_impl,
-                                                         fix_lua_indexing=True, dictionary=tgt_dict))
+        src_datasets.append(indexed_dataset.make_dataset(prefix + src, impl=dataset_impl,fix_lua_indexing=True, dictionary=src_dict))
+        tgt_datasets.append(indexed_dataset.make_dataset(prefix + tgt, impl=dataset_impl,fix_lua_indexing=True, dictionary=tgt_dict))
 
         print('| {} {} {}-{} {} examples'.format(data_path, split_k, src, tgt, len(src_datasets[-1])))
 

@@ -330,6 +330,49 @@ class BertIndexedCachedDataset(IndexedCachedDataset):
             item -= 1  # subtract 1 for 0-based indexing
         return item
 
+class SMPIndexedDataset(FairseqDataset):
+    """Loader for SMP Dataset"""
+
+    def __init__(self, path, fix_lua_indexing=False):
+        super().__init__()
+        self.path = path
+        self.fix_lua_indexing = fix_lua_indexing
+        self.dataset = None
+        self.read_data(path)
+
+    def read_index(self, path):
+        pass
+
+    def read_data(self, path):
+        import pickle
+        self.dataset = pickle.load(open(path+".pk", 'rb', buffering=0))
+        self._len = len(self.dataset)
+
+    def check_index(self, i):
+        if i < 0 or i >= self._len:
+            raise IndexError('index out of range')
+
+    def __del__(self):
+        pass
+
+    def __getitem__(self, i):
+        if not self.dataset:
+            self.read_data(self.dataset)
+        self.check_index(i)
+        item = self.dataset[i]
+        return item
+
+    def __len__(self):
+        return self._len
+
+    @staticmethod
+    def exists(path):
+        return os.path.exists(path+".pk")
+
+    @property
+    def supports_prefetch(self):
+        return False  # avoid prefetching to save memory
+
 def _warmup_mmap_file(path):
     with open(path, 'rb') as stream:
         while stream.read(100 * 1024 * 1024):
